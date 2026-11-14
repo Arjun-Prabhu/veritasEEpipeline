@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>IPyWidget export</title>
+</head>
+<body>
+
+
+<!-- Load require.js. Delete this if your page already loads require.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@jupyter-widgets/html-manager@^1.0.1/dist/embed-amd.js" crossorigin="anonymous"></script>
+
+<script type="application/vnd.jupyter.widget-state+json">
+{
+  "version_major": 2,
+  "version_minor": 0,
+  "state": {
+    "75a6db4fa82c4d2e82aeef9254a11c8a": {
+      "model_name": "LayoutModel",
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "2.0.0",
+      "state": {
+        "width": "500px"
+      }
+    },
+    "51047c72db8f46e1aee21e940821efda": {
+      "model_name": "LayoutModel",
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "2.0.0",
+      "state": {
+        "height": "600px"
+      }
+    },
+    "35e9b69d51a24ee6b06d5e26544d51f9": {
+      "model_name": "LeafletMapStyleModel",
+      "model_module": "jupyter-leaflet",
+      "model_module_version": "^0.20",
+      "state": {}
+    },
+    "3f1bf13f05304bc997f6e0dc082a5d39": {
+      "model_name": "LeafletMapStyleModel",
+      "model_module": "jupyter-leaflet",
+      "model_module_version": "^0.20",
+      "state": {
+        "cursor": "move"
+      }
+    },
+    "6537c0ab6e124bc88934b0cec7019273": {
+      "model_name": "LeafletTileLayerModel",
+      "model_module": "jupyter-leaflet",
+      "model_module_version": "^0.20",
+      "state": {
+        "attribution": "&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors",
+        "base": true,
+        "max_zoom": 30,
+        "min_zoom": 1,
+        "name": "OpenStreetMap.Mapnik",
+        "options": [
+          "attribution",
+          "bounds",
+          "detect_retina",
+          "max_native_zoom",
+          "max_zoom",
+          "min_native_zoom",
+          "min_zoom",
+          "no_wrap",
+          "pm_ignore",
+          "tile_size",
+          "tms",
+          "zoom_offset"
+        ],
+        "subitems": []
+      }
+    },
+    "1b06d2aaf7474319b6d2cc779c0c09ec": {
+      "model_name": "LeafletMapStyleModel",
+      "model_module": "jupyter-leaflet",
+      "model_module_version": "^0.20",
+      "state": {}
+    },
+    "330a30b33e5c40879ccfd09b0c9a54e3": {
+      "model_name": "LeafletMapModel",
+      "model_module": "jupyter-leaflet",
+      "model_module_version": "^0.20",
+      "state": {
+        "_dom_classes": [],
+        "center": [
+          36.95452327340795,
+          -76.3280531224101
+        ],
+        "controls": [
+          "IPY_MODEL_450113bcb38549bd897afb4f7a7ceabd",
+          "IPY_MODEL_c8fafce366784f7380f930b49e7d40b2",
+          "IPY_MODEL_376ffbbe14b041379ebcd7530b92695b",
+          "IPY_MODEL_1a62d4f54c5a4fe2a3a2ac07bd91dc92",
+          "IPY_MODEL_67d8aa81743f44a58ed1dc6971a4e6a3",
+          "IPY_MODEL_b3b84bf640a144cb8eea527f00c0d743",
+          "IPY_MODEL_5ab13c144be44aecb6a5c7d908601787"
+        ],
+        "crs": {
+          "name": "EPSG3857",
+          "custom": false
+        },
+        "default_style": "IPY_MODEL_35e9b69d51a24ee6b06d5e26544d51f9",
+        "dragging_style": "IPY_MODEL_3f1bf13f05304bc997f6e0dc082a5d39",
+        "layers": [
+          "IPY_MODEL_6537c0ab6e124bc88934b0cec7019273",
+          "IPY_MODEL_7596611216dc42b18f5bc23dce0f9f47"
+        ],
+        "layout": "IPY_MODEL_51047c72db8f46e1aee21e940821efda",
+        "options": [
+          "bounce_at_zoom_limits",
+          "box_zoom",
+          "center",
+          "close_popup_on_click",
+          "double_click_zoom",
+          "dragging",
+          "fullscreen",
+          "inertia",
+          "inertia_deceleration",
+          "inertia_max_speed",
+          "interpolation",
+          "keyboard",
+          "keyboard_pan_offset",
+          "keyboard_zoom_offset",
+          "max_zoom",
+          "min_zoom",
+          "prefer_canvas",
+          "scroll_wheel_zoom",
+          "tap",
+          "tap_tolerance",
+          "touch_zoom",
+          "world_copy_jump",
+          "zoom",
+          "zoom_animation_threshold",
+          "zoom_delta",
+          "zoom_snap"
+        ],
+        "panes": {},
+        "scroll_wheel_zoom": true,
+        "style": "IPY_MODEL_1b06d2aaf7474319b6d2cc779c0c09ec",
+        "zoom": 15.0
+      }
+    },
+    "9b28256935ab4ad38f95264daeb0e6b1": {
+      "model_name": "LayoutModel",
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "2.0.0",
+      "state": {
+        "grid_gap": "0px 10px",
+        "grid_template_columns": "auto auto",
+        "overflow": "visible"
+      }
+    },
+    "aac03405e43b422381e540e31040ab2d": {
+      "model_name": "GridBoxModel",
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "2.0.0",
+      "state": {
+        "_dom_classes": [],
+        "children": [
+          "IPY_MODEL_6583e469c9eb4262a014c366371d64bb",
+          "IPY_MODEL_016dbaaab2bb4274801897c6337d3a00"
+        ],
+        "layout": "IPY_MODEL_9b28256935ab4ad38f95264daeb0e6b1"
+      }
+    },
+    "450113bcb38549bd897afb4f7a7ceabd": {
+      "model_name": "LeafletWidgetControlModel",
+      "model_module": "jupyter-leaflet",
+      "model_module_version": "^0.20",
+      "state": {
+        "options": [
+          "position",
+          "transparent_bg"
+        ],
+        "position": "topright",
+        "transparent_bg": true,
+        "widget": "IPY_MODEL_aac03405e43b422381e540e31040ab2d"
+      }
+    },
+    "cfac75d4bcb944aa8754ebefed48bb21": {
+      "model_name": "LayoutModel",
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "2.0.0",
+      "state": {}
+    },
+    "9821b57c42e14aa3ae42077a16ea895d": {
+      "model_name": "AnyModel",
+      "model_module": "anywidget",
+      "model_module_version": "~0.11.*",
+      "state": {
+        "_dom_classes": [
+          "geemap-light"
+        ],
+        "layout": "IPY_MODEL_cfac75d4bcb944aa8754ebefed48bb21"
+      }
+    },
+    "c8fafce366784f7380f930b49e7d40b2": {
+      "model_name": "LeafletWidgetControlModel",
+      "model_module": "jupyter-leaflet",
+      "model_module_version": "^0.20",
+      "state": {
+        "options": [
+          "position",
+          "transparent_bg"
+        ],
+        "transparent_bg": true,
+        "widget": "IPY_MODEL_9821b57c42e14aa3ae42077a16ea895d"
+      }
+    },
+    "376ffbbe14b041379ebcd7530b92695b": {
+      "model_name": "LeafletZoomControlModel",
+      "model_module": "jupyter-leaflet",
+      "model_module_version": "^0.20",
+      "state": {
+        "options": [
+          "position",
+          "zoom_in_text",
+          "zoom_in_title",
+          "zoom_out_text",
+          "zoom_out_title"
+        ]
+      }
+    },
+    "1a62d4f54c5a4fe2a3a2ac07bd91dc92": {
+      "model_name": "LeafletFullScreenControlModel",
+      "model_module": "jupyter-leaflet",
+      "model_module_version": "^0.20",
+      "state": {
+        "options": [
+          "position"
+        ]
+      }
+    },
+    "67d8aa81743f44a58ed1dc6971a4e6a3": {
+      "model_name": "LeafletDrawControlModel",
+      "model_module": "jupyter-leaflet",
+      "model_module_version": "^0.20",
+      "state": {
+        "circle": {},
+        "circlemarker": {},
+        "data": [],
+        "marker": {
+          "shapeOptions": {
+            "color": "#3388ff"
+          }
+        },
+        "options": [
+          "position"
+        ],
+        "polygon": {
+          "shapeOptions": {}
+        },
+        "polyline": {
+          "shapeOptions": {}
+        },
+        "rectangle": {
+          "shapeOptions": {
+            "color": "#3388ff"
+          }
+        }
+      }
+    },
+    "b3b84bf640a144cb8eea527f00c0d743": {
+      "model_name": "LeafletScaleControlModel",
+      "model_module": "jupyter-leaflet",
+      "model_module_version": "^0.20",
+      "state": {
+        "options": [
+          "imperial",
+          "max_width",
+          "metric",
+          "position",
+          "update_when_idle"
+        ],
+        "position": "bottomleft"
+      }
+    },
+    "9566fec027c54d278e3ee8c8c0cbebe6": {
+      "model_name": "LayoutModel",
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "2.0.0",
+      "state": {}
+    },
+    "4e1ac18239174ecd8bb12ec3dd9fc6ff": {
+      "model_name": "AnyModel",
+      "model_module": "anywidget",
+      "model_module_version": "~0.11.*",
+      "state": {
+        "_dom_classes": [
+          "geemap-light"
+        ],
+        "icon": "map",
+        "layout": "IPY_MODEL_9566fec027c54d278e3ee8c8c0cbebe6",
+        "tooltip_text": "Basemap selector"
+      }
+    },
+    "2cd8eafea4824dbfaed78466aa443cdc": {
+      "model_name": "LayoutModel",
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "2.0.0",
+      "state": {}
+    },
+    "eb9f27a7ffbf4f5db03b33e5be9379c9": {
+      "model_name": "AnyModel",
+      "model_module": "anywidget",
+      "model_module_version": "~0.11.*",
+      "state": {
+        "_dom_classes": [
+          "geemap-light"
+        ],
+        "icon": "point_scan",
+        "layout": "IPY_MODEL_2cd8eafea4824dbfaed78466aa443cdc",
+        "tooltip_text": "Inspector"
+      }
+    },
+    "4c6050f006354b90b5f2cff2de4c6603": {
+      "model_name": "LayoutModel",
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "2.0.0",
+      "state": {}
+    },
+    "f672eb660ece441796bff76abb2cc17a": {
+      "model_name": "AnyModel",
+      "model_module": "anywidget",
+      "model_module_version": "~0.11.*",
+      "state": {
+        "_dom_classes": [
+          "geemap-light"
+        ],
+        "icon": "question_mark",
+        "layout": "IPY_MODEL_4c6050f006354b90b5f2cff2de4c6603",
+        "tooltip_text": "Get help"
+      }
+    },
+    "5bdcfcd0e79044a78a1be6673a04e008": {
+      "model_name": "LayoutModel",
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "2.0.0",
+      "state": {}
+    },
+    "016dbaaab2bb4274801897c6337d3a00": {
+      "model_name": "AnyModel",
+      "model_module": "anywidget",
+      "model_module_version": "~0.11.*",
+      "state": {
+        "_dom_classes": [],
+        "extra_tools": [],
+        "layout": "IPY_MODEL_5bdcfcd0e79044a78a1be6673a04e008",
+        "main_tools": [
+          "IPY_MODEL_4e1ac18239174ecd8bb12ec3dd9fc6ff",
+          "IPY_MODEL_eb9f27a7ffbf4f5db03b33e5be9379c9",
+          "IPY_MODEL_f672eb660ece441796bff76abb2cc17a"
+        ]
+      }
+    },
+    "2dbf16f600ec4ae0b7d18d13f9140a1d": {
+      "model_name": "LayoutModel",
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "2.0.0",
+      "state": {}
+    },
+    "359fd45bc2e34c92b81db47d6ee67f71": {
+      "model_name": "AnyModel",
+      "model_module": "anywidget",
+      "model_module_version": "~0.11.*",
+      "state": {
+        "_dom_classes": [
+          "geemap-light"
+        ],
+        "icon": "add",
+        "layout": "IPY_MODEL_2dbf16f600ec4ae0b7d18d13f9140a1d",
+        "tooltip_text": "Expand toolbar"
+      }
+    },
+    "b8193d6e790e44c69489ae28cfe0f635": {
+      "model_name": "LayoutModel",
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "2.0.0",
+      "state": {}
+    },
+    "6583e469c9eb4262a014c366371d64bb": {
+      "model_name": "AnyModel",
+      "model_module": "anywidget",
+      "model_module_version": "~0.11.*",
+      "state": {
+        "_dom_classes": [],
+        "children": [
+          "IPY_MODEL_a780aacc8fe649e2b2244d8482a9a53d",
+          "IPY_MODEL_36a854a2cbd14290842aaf49d3be9718"
+        ],
+        "layout": "IPY_MODEL_b8193d6e790e44c69489ae28cfe0f635"
+      }
+    },
+    "982b6814541748328985b0543fb4571e": {
+      "model_name": "LayoutModel",
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "2.0.0",
+      "state": {}
+    },
+    "6470ceea272a4289a724893b18ec9b22": {
+      "model_name": "AnyModel",
+      "model_module": "anywidget",
+      "model_module_version": "~0.11.*",
+      "state": {
+        "_dom_classes": [
+          "geemap-light"
+        ],
+        "layout": "IPY_MODEL_982b6814541748328985b0543fb4571e",
+        "name": "OpenStreetMap.Mapnik"
+      }
+    },
+    "383c928942204fb29be3a10f5437eb02": {
+      "model_name": "LinkModel",
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "2.0.0",
+      "state": {
+        "source": [
+          "IPY_MODEL_6537c0ab6e124bc88934b0cec7019273",
+          "opacity"
+        ],
+        "target": [
+          "IPY_MODEL_6470ceea272a4289a724893b18ec9b22",
+          "opacity"
+        ]
+      }
+    },
+    "aad3de16648a4e6fbe08e5462bfa8551": {
+      "model_name": "LinkModel",
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "2.0.0",
+      "state": {
+        "source": [
+          "IPY_MODEL_6537c0ab6e124bc88934b0cec7019273",
+          "visible"
+        ],
+        "target": [
+          "IPY_MODEL_6470ceea272a4289a724893b18ec9b22",
+          "visible"
+        ]
+      }
+    },
+    "5ab13c144be44aecb6a5c7d908601787": {
+      "model_name": "LeafletAttributionControlModel",
+      "model_module": "jupyter-leaflet",
+      "model_module_version": "^0.20",
+      "state": {
+        "options": [
+          "position",
+          "prefix"
+        ],
+        "position": "bottomright"
+      }
+    },
+    "7596611216dc42b18f5bc23dce0f9f47": {
+      "model_name": "LeafletTileLayerModel",
+      "model_module": "jupyter-leaflet",
+      "model_module_version": "^0.20",
+      "state": {
+        "attribution": "Google Earth Engine",
+        "max_zoom": 24,
+        "name": "RGB",
+        "options": [
+          "attribution",
+          "bounds",
+          "detect_retina",
+          "max_native_zoom",
+          "max_zoom",
+          "min_native_zoom",
+          "min_zoom",
+          "no_wrap",
+          "pm_ignore",
+          "tile_size",
+          "tms",
+          "zoom_offset"
+        ],
+        "subitems": [],
+        "url": "https://earthengine.googleapis.com/v1/projects/lens-495521/maps/20bd8400e145bc9112bc8cc98cf2dbec-520c2053952e09b0715c570465dda21a/tiles/{z}/{x}/{y}"
+      }
+    },
+    "afa6af83df374b0fae464ebcd60f96ef": {
+      "model_name": "LayoutModel",
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "2.0.0",
+      "state": {}
+    },
+    "a780aacc8fe649e2b2244d8482a9a53d": {
+      "model_name": "AnyModel",
+      "model_module": "anywidget",
+      "model_module_version": "~0.11.*",
+      "state": {
+        "_dom_classes": [
+          "geemap-light"
+        ],
+        "layout": "IPY_MODEL_afa6af83df374b0fae464ebcd60f96ef",
+        "name": "OpenStreetMap.Mapnik"
+      }
+    },
+    "c427f9f33797441882c6095b6644eea6": {
+      "model_name": "LinkModel",
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "2.0.0",
+      "state": {
+        "source": [
+          "IPY_MODEL_6537c0ab6e124bc88934b0cec7019273",
+          "opacity"
+        ],
+        "target": [
+          "IPY_MODEL_a780aacc8fe649e2b2244d8482a9a53d",
+          "opacity"
+        ]
+      }
+    },
+    "022dd7bfbeb74a1293289e713f873796": {
+      "model_name": "LinkModel",
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "2.0.0",
+      "state": {
+        "source": [
+          "IPY_MODEL_6537c0ab6e124bc88934b0cec7019273",
+          "visible"
+        ],
+        "target": [
+          "IPY_MODEL_a780aacc8fe649e2b2244d8482a9a53d",
+          "visible"
+        ]
+      }
+    },
+    "ba7d145052124f68ac54122b470f901a": {
+      "model_name": "LayoutModel",
+      "model_module": "@jupyter-widgets/base",
+      "model_module_version": "2.0.0",
+      "state": {}
+    },
+    "36a854a2cbd14290842aaf49d3be9718": {
+      "model_name": "AnyModel",
+      "model_module": "anywidget",
+      "model_module_version": "~0.11.*",
+      "state": {
+        "_dom_classes": [
+          "geemap-light"
+        ],
+        "layout": "IPY_MODEL_ba7d145052124f68ac54122b470f901a",
+        "name": "RGB"
+      }
+    },
+    "54565e559d634664a640d1b5bd1d9700": {
+      "model_name": "LinkModel",
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "2.0.0",
+      "state": {
+        "source": [
+          "IPY_MODEL_7596611216dc42b18f5bc23dce0f9f47",
+          "opacity"
+        ],
+        "target": [
+          "IPY_MODEL_36a854a2cbd14290842aaf49d3be9718",
+          "opacity"
+        ]
+      }
+    },
+    "6ac83610e7cc45f8b4422e73ee503f18": {
+      "model_name": "LinkModel",
+      "model_module": "@jupyter-widgets/controls",
+      "model_module_version": "2.0.0",
+      "state": {
+        "source": [
+          "IPY_MODEL_7596611216dc42b18f5bc23dce0f9f47",
+          "visible"
+        ],
+        "target": [
+          "IPY_MODEL_36a854a2cbd14290842aaf49d3be9718",
+          "visible"
+        ]
+      }
+    }
+  }
+}
+</script>
+<script type="application/vnd.jupyter.widget-view+json">
+{"version_major": 2, "version_minor": 0, "model_id": "330a30b33e5c40879ccfd09b0c9a54e3"}
+</script>
+
+</body>
+</html>
