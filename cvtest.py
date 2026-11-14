@@ -57,4 +57,4 @@ headers = {
 body = f'[out:json][timeout:25];(nwr["waterway"="dock"](poly : "{norfolkString}");nwr["waterway"="dock"](poly : "{norfolkString}");nwr["natural"="water"]["water"="bay"](poly : "{norfolkString}");nwr["landuse"="industrial"]["industrial"="port"](poly : "{norfolkString}");nwr["man_made"="pier"](poly : "{norfolkString}");nwr["man_made"="quay"](poly : "{norfolkString}"););out geom;'
 data = requests.request("POST", url = "https://overpass-api.de/api/interpreter", headers=headers, data={"data":body})
 
-print(data.text)
+# print(data.text)

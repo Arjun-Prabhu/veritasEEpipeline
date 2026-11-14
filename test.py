@@ -12,7 +12,7 @@ from helpers import mask_s2_clouds, convert_tiff_to_png
 
 def auth():
     ee.Authenticate()
-    # ee.Initialize(project='veritasaihackathon')
+    ee.Initialize(project='veritasaihackathon')
 
 
 def saveImage(image, roi: ee.Geometry, dirName: str, metadata: dict, suffix: str = ""):
@@ -40,8 +40,6 @@ def getImage(roi: ee.Geometry, dirName: str, dateStart: ee.Date, dateEnd: ee.Dat
 
 
 auth()
-region = {
-    'type': 'Rectangle',
-    'coordinates': cvtest.norfolk
-}
-# getImage(roi=ee.Geometry(region), dirName="", dateStart=ee.Date('2017-6-24'), dateEnd=ee.Date('2017-6-30'))
+roi = ee.Geometry.Rectangle([-77.1198, 38.7916, -76.9094, 38.9955])
+
+getImage(roi=ee.Geometry(roi), dirName="", dateStart=ee.Date('2017-6-24'), dateEnd=ee.Date('2017-6-30'))
