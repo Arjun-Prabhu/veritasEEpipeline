@@ -1,0 +1,14 @@
+# Python dependencies
+earthengine-api
+geemap
+numpy
+pytorch
+lxml
+curl_cffi
+rasterio
+trafilatura
+bs4
+tavily
+cv2
+requests
+PIL
