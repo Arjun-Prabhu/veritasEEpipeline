@@ -4,10 +4,10 @@
   --font-sans: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-serif: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
   --color-ink: #f4f1ea;
-  --color-moss: #07110d;
-  --color-lime: #dff56a;
-  --color-foam: #b7efe4;
-  --color-clay: #e7a27c;
+  --color-moss: #05060f;
+  --color-lime: #7dccff;
+  --color-foam: #b9e4ff;
+  --color-clay: #f0b4a0;
 }
 
 html {
@@ -23,12 +23,12 @@ body {
 }
 
 ::selection {
-  background: #dff56a;
-  color: #14210c;
+  background: #7dccff;
+  color: #071018;
 }
 
 :focus-visible {
-  outline: 2px solid #dff56a;
+  outline: 2px solid #7dccff;
   outline-offset: 3px;
 }
 
@@ -42,5 +42,5 @@ html.lenis body {
 }
 
 input[type="range"] {
-  accent-color: #dff56a;
+  accent-color: #7dccff;
 }

@@ -63,7 +63,7 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
             onClick={() => setMaskOn((value) => !value)}
             className={cx(
               "rounded-full border px-3 py-1.5 text-xs",
-              maskOn ? "border-lime bg-lime text-[#14210c]" : "border-white/15 text-ink/80 hover:bg-white/5",
+              maskOn ? "border-lime bg-lime text-[#071018]" : "border-white/15 text-ink/80 hover:bg-white/5",
             )}
           >
             Classification
@@ -98,7 +98,7 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
                   className="pointer-events-none absolute inset-y-0 z-10 w-px bg-white"
                   style={{ left: `${position}%` }}
                 >
-                  <div className="absolute left-1/2 top-1/2 grid h-9 w-9 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-lime text-[11px] font-semibold text-[#14210c]">
+                  <div className="absolute left-1/2 top-1/2 grid h-9 w-9 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-lime text-[11px] font-semibold text-[#071018]">
                     ↔
                   </div>
                 </div>
@@ -136,7 +136,7 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
                   }}
                   className={cx(
                     "shrink-0 rounded-full border px-3 py-1 text-xs",
-                    active ? "border-lime bg-lime text-[#14210c]" : "border-white/15 text-ink/75 hover:bg-white/5",
+                    active ? "border-lime bg-lime text-[#071018]" : "border-white/15 text-ink/75 hover:bg-white/5",
                   )}
                 >
                   {frame.year}

@@ -73,7 +73,7 @@ export default function ExploreGallery() {
                 <div className="flex shrink-0 gap-2">
                   <Link
                     href={`/analyze?q=${encodeURIComponent(report.prompt)}`}
-                    className="rounded-full bg-lime px-4 py-2 text-sm font-semibold text-[#14210c]"
+                    className="rounded-full bg-lime px-4 py-2 text-sm font-semibold text-[#071018]"
                   >
                     Open
                   </Link>

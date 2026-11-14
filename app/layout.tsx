@@ -10,10 +10,7 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: {
-    default: "gAIa — Every pixel tells a story",
-    template: "%s · gAIa",
-  },
+  title: "gAIa",
   description:
     "gAIa reads how land changes. Ask about a place, compare the years, and see what the trend asks you to do next.",
 };
@@ -24,7 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-sans antialiased">
         <a
           href="#content"
-          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-full focus:bg-lime focus:px-4 focus:py-2 focus:text-moss"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-full focus:bg-lime focus:px-4 focus:py-2 focus:text-[#071018]"
         >
           Skip to content
         </a>

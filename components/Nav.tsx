@@ -36,7 +36,7 @@ export default function Nav() {
   return (
     <header className="pointer-events-none fixed inset-x-0 top-0 z-50 flex items-center justify-between px-4 py-4 md:px-6">
       <Link href="/" className="pointer-events-auto text-[12px] tracking-[0.18em] text-white/80">
-        gAIa
+        g<span className="text-[#7dccff]">AI</span>a
       </Link>
       <nav className="pointer-events-auto flex items-center gap-3 text-[12px] text-white/70 md:gap-5">
         {LINKS.map((link) => {

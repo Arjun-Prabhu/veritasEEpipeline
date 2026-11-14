@@ -62,7 +62,6 @@ export default function ScrollEarth() {
       const rise = smoothstep(0.56, 0.68, progress);
       const travel = smoothstep(0.66, 0.86, progress);
       const reveal = smoothstep(0.84, 0.96, progress);
-      const wide = window.innerWidth >= 900;
 
       if (veilRef.current) {
         veilRef.current.style.opacity = String(smoothstep(0.5, 0.66, progress) * 0.94);
@@ -73,10 +72,8 @@ export default function ScrollEarth() {
         stageRef.current.style.transform = `translateY(${(1 - rise) * 24}vh)`;
       }
       if (stripRef.current) {
-        const visible = wide ? window.innerWidth * 0.48 : window.innerWidth * 0.82;
-        const shift = Math.max(0, stripRef.current.scrollWidth - visible);
-        const inset = wide ? window.innerWidth * 0.08 : 24;
-        stripRef.current.style.transform = `translateX(${inset - travel * shift}px)`;
+        const shift = Math.max(0, stripRef.current.scrollWidth - window.innerWidth);
+        stripRef.current.style.transform = `translateX(${-travel * shift}px)`;
       }
       if (noteRef.current) noteRef.current.style.opacity = String(rise * (1 - reveal));
       if (descRef.current) {
@@ -148,7 +145,7 @@ export default function ScrollEarth() {
           className="pointer-events-none absolute left-1/2 top-[24%] z-20 font-semibold leading-none tracking-tight text-white"
           style={{ translate: "-50% -50%" }}
         >
-          gAIa
+          g<span className="text-[#7dccff]">AI</span>a
         </div>
 
         <div
@@ -158,7 +155,7 @@ export default function ScrollEarth() {
           <div className="overflow-hidden">
             <div ref={stripRef} className="flex w-max gap-5 md:gap-8">
               {PIXELS.map((pixel) => (
-                <article key={pixel.year} className="w-[68vw] shrink-0 sm:w-[240px]">
+                <article key={pixel.year} className="w-[calc(50vw-0.35rem)] shrink-0">
                   <div className="relative aspect-square overflow-hidden bg-[#0c1440]">
                     <img
                       src={`/api/tile?scene=urban&t=${pixel.t}&kind=photo`}

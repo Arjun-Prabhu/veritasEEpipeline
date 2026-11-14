@@ -8,7 +8,7 @@ export default function NotFound() {
       <p className="mt-4 text-ink/70">The route you asked for is not part of gAIa.</p>
       <Link
         href="/"
-        className="mt-8 w-fit rounded-full bg-lime px-5 py-3 text-sm font-semibold text-[#14210c]"
+        className="mt-8 w-fit rounded-full bg-lime px-5 py-3 text-sm font-semibold text-[#071018]"
       >
         Back to Earth
       </Link>

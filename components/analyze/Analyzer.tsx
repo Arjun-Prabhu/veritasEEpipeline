@@ -137,7 +137,7 @@ export default function Analyzer() {
           <button
             type="submit"
             disabled={busy}
-            className="h-12 rounded-full bg-lime px-6 text-sm font-semibold text-[#14210c] disabled:opacity-60"
+            className="h-12 rounded-full bg-lime px-6 text-sm font-semibold text-[#071018] disabled:opacity-60"
           >
             {busy ? "Reading…" : "Read the land"}
           </button>
@@ -221,8 +221,10 @@ export default function Analyzer() {
 
 function IdleStage({ phase, error }: { phase: Phase; error: string }) {
   return (
-    <section className="flex h-full min-h-[420px] flex-col justify-end rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_30%_20%,rgba(223,245,106,0.14),transparent_32%),linear-gradient(160deg,#10241c,#07110d_55%)] p-6 md:p-10">
-      <p className="text-[11px] uppercase tracking-[0.28em] text-lime">gAIa</p>
+    <section className="flex h-full min-h-[420px] flex-col justify-end rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_30%_20%,rgba(125,204,255,0.16),transparent_34%),linear-gradient(160deg,#10182c,#05060f_58%)] p-6 md:p-10">
+      <p className="text-[11px] uppercase tracking-[0.28em] text-white">
+        g<span className="text-[#7dccff]">AI</span>a
+      </p>
       <h2 className="mt-4 max-w-xl font-serif text-5xl leading-[0.95] text-ink md:text-6xl">
         Name a place. Walk the years it has already lived.
       </h2>
@@ -245,7 +247,7 @@ function Stepper({ phase }: { phase: Phase }) {
             className={cx(
               "grid h-6 w-6 place-items-center rounded-full text-[11px]",
               index < current
-                ? "bg-lime text-[#14210c]"
+                ? "bg-lime text-[#071018]"
                 : index === current
                   ? "border border-lime text-lime"
                   : "border border-white/15 text-ink/40",

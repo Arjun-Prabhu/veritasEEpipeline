@@ -37,7 +37,7 @@ function PinGlobe({ lat, lon }: { lat: number; lon: number }) {
       </mesh>
       <mesh position={pin.toArray()}>
         <sphereGeometry args={[0.045, 16, 16]} />
-        <meshBasicMaterial color="#dff56a" />
+        <meshBasicMaterial color="#7dccff" />
       </mesh>
     </group>
   );

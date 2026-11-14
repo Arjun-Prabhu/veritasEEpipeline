@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import ExploreGallery from "@/components/explore/ExploreGallery";
 
 export const metadata: Metadata = {
-  title: "Explore",
+  title: "gAIa",
   description: "Case studies and readings saved on this device.",
 };
 
