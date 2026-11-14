@@ -62,21 +62,21 @@ export default function ScrollEarth() {
         mark.style.fontSize = `${size}px`;
       }
 
-      const emerge = smoothstep(0.54, 0.7, progress);
-      const travel = smoothstep(0.74, 0.88, progress);
-      const reveal = smoothstep(0.86, 0.96, progress);
+      const emerge = smoothstep(0.54, 0.68, progress);
+      const intro = smoothstep(0.72, 0.86, progress);
+      const travel = smoothstep(0.86, 0.96, progress);
+      const reveal = smoothstep(0.92, 0.99, progress);
 
       if (veilRef.current) {
-        veilRef.current.style.opacity = String(smoothstep(0.68, 0.82, progress) * 0.92);
+        veilRef.current.style.opacity = String(smoothstep(0.72, 0.86, progress) * 0.92);
       }
       if (stageRef.current) {
+        stageRef.current.style.top = `${window.innerHeight / 2 - 140}px`;
         stageRef.current.style.opacity = emerge < 0.01 ? "0" : "1";
         stageRef.current.style.visibility = emerge < 0.01 ? "hidden" : "visible";
         stageRef.current.style.transform = "none";
       }
-      if (clipRef.current) {
-        clipRef.current.style.overflow = emerge < 0.98 ? "visible" : "hidden";
-      }
+      if (clipRef.current) clipRef.current.style.overflow = "hidden";
       if (stripRef.current) {
         const desc = descRef.current;
         const descBox = desc?.getBoundingClientRect();
@@ -86,32 +86,24 @@ export default function ScrollEarth() {
           getComputedStyle(desc).position === "absolute";
         const stopAt = beside ? Math.max(280, descBox.left - 36) : window.innerWidth;
         const shift = Math.max(0, stripRef.current.scrollWidth - stopAt);
-        stripRef.current.style.transform = `translateX(${-travel * shift}px)`;
+        const centeredX = window.innerWidth / 2 - 140;
+        const x = lerp(lerp(centeredX, 0, intro), -shift, travel);
+        stripRef.current.style.transform = `translateX(${x}px)`;
 
         const tiles = stripRef.current.querySelectorAll("article");
         tiles.forEach((tile, index) => {
           if (index === 0) return;
-          tile.style.opacity = String(smoothstep(0.86, 1, emerge));
+          tile.style.opacity = String(intro);
         });
       }
       const first = firstTileRef.current;
       if (first) {
         first.style.transformOrigin = "center center";
         first.style.zIndex = "2";
-        if (emerge >= 0.995) {
-          first.style.transform = "none";
-        } else {
-          first.style.transform = "none";
-          const rect = first.getBoundingClientRect();
-          const nx = rect.left + rect.width / 2;
-          const ny = rect.top + rect.height / 2;
-          const k = 1 - emerge;
-          const scale = lerp(0.14, 1, emerge);
-          first.style.transform = `translate(${(window.innerWidth / 2 - nx) * k}px, ${(window.innerHeight / 2 - ny) * k}px) scale(${scale})`;
-        }
+        first.style.transform = emerge >= 0.995 ? "none" : `scale(${lerp(0.14, 1, emerge)})`;
       }
-      if (noteRef.current) noteRef.current.style.opacity = String(smoothstep(0.82, 1, emerge) * (1 - reveal));
-      if (probeRef.current) probeRef.current.style.opacity = String(smoothstep(0.82, 1, emerge));
+      if (noteRef.current) noteRef.current.style.opacity = String(intro * (1 - reveal));
+      if (probeRef.current) probeRef.current.style.opacity = String(intro);
       if (descRef.current) {
         descRef.current.style.opacity = reveal.toFixed(3);
         descRef.current.style.pointerEvents = reveal > 0.45 ? "auto" : "none";
