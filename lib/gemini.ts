@@ -5,7 +5,7 @@ import type { ParsedQuery } from "@/lib/query";
 import type { MLModelResponse, YearImagery } from "@/services/mlModelService";
 import { renderTileFromUrl } from "@/services/tileArt";
 
-const MODEL = "gemini-2.5-flash";
+const MODEL = "models/gemini-3.8-flash";
 
 export function geminiConfigured() {
   return Boolean(process.env.GEMINI_API_KEY?.trim());

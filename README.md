@@ -22,7 +22,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Pipeline
 
-1. **Parse.** `POST /api/parse` sends the prompt to Gemini `gemini-2.5-flash` with a JSON schema and returns `location`, `start_year`, `end_year`, `focus_area`, plus a map center. If the prompt has no years, the range is 2021–2026.
+1. **Parse.** `POST /api/parse` sends the prompt to Gemini `models/gemini-3.8-flash` with a JSON schema and returns `location`, `start_year`, `end_year`, `focus_area`, plus a map center. If the prompt has no years, the range is 2021–2026.
 2. **Imagery.** `POST /api/imagery` calls `fetchLandImagery()` in `services/mlModelService.ts`. Nothing else in the app knows whether the tiles are simulated.
 3. **Read.** `POST /api/interpret` sends the user’s prompt, the land-cover table, and the first, middle, and last images back to Gemini and returns observed changes, root causes, a five-year reading, and mitigation steps.
 
