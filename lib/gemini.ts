@@ -112,6 +112,31 @@ Images follow for selected years. They may be simulated previews or real model o
   };
 }
 
+export async function askGemini(prompt: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set.");
+  const ai = new GoogleGenAI({ apiKey });
+  const response = await ai.models.generateContent({
+    model: MODEL,
+    contents: prompt,
+    config: { temperature: 0.3 },
+  });
+  const text = response.text?.trim();
+  if (!text) throw new Error("The model returned an empty reply.");
+  return text;
+}
+
+export function geminiErrorMessage(error: unknown) {
+  const raw = error instanceof Error ? error.message : "The key did not work.";
+  try {
+    const parsed = JSON.parse(raw) as { error?: { message?: string } };
+    if (parsed.error?.message) return parsed.error.message;
+  } catch {
+    /* The SDK sometimes returns plain text. */
+  }
+  return raw;
+}
+
 function client() {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) return null;

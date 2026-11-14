@@ -53,7 +53,7 @@ function Earth({ progressRef }: { progressRef: React.RefObject<number> }) {
   useFrame((state, delta) => {
     const progress = progressRef.current ?? 0;
     const zoomOut = smoothstep(0.06, 0.32, progress);
-    const zoomIn = smoothstep(0.36, 0.58, progress);
+    const zoomIn = smoothstep(0.34, 0.52, progress);
     const globeEase = zoomOut * zoomOut * (3 - 2 * zoomOut);
     const cityEase = zoomIn * zoomIn * (3 - 2 * zoomIn);
 
@@ -64,7 +64,7 @@ function Earth({ progressRef }: { progressRef: React.RefObject<number> }) {
       clouds.current.rotation.y = state.clock.elapsedTime * 0.012 * (1 - cityEase);
     }
 
-    const z = lerp(lerp(3.65, 5.35, globeEase), 1.72, cityEase);
+    const z = lerp(lerp(3.65, 5.35, globeEase), 1.22, cityEase);
     const y = lerp(lerp(0.22, 0, globeEase), 0, cityEase);
     const lookY = lerp(lerp(0.92, 0.2, globeEase), 0, cityEase);
     state.camera.position.z = THREE.MathUtils.damp(state.camera.position.z, z, 3.4, delta);

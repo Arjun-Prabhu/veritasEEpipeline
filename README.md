@@ -18,7 +18,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `/analyze` | The workspace. Natural-language query, year slider, classification overlay, land-cover bars, and a briefing. |
 | `/explore` | Case studies, plus readings saved in this browser. |
 
-`GEMINI_API_KEY` is optional. Without it, a local parser and a number-driven briefing keep the demo usable. Imagery stays on the mock adapter until you flip the switch below.
+`GEMINI_API_KEY` ships as `placeholder-gemini-api-key`. The app sends that value to Gemini as a real key. The box under the home tiles reports whether the call succeeded. Replace the placeholder with a key from Google AI Studio for live replies. The analyzer still falls back to the local parser if the call fails. Imagery stays on the mock adapter until you flip the switch below.
 
 ## Pipeline
 

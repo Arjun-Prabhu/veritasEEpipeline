@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 const EarthCanvas = dynamic(() => import("./EarthCanvas"), { ssr: false });
 
@@ -36,6 +36,9 @@ export default function ScrollEarth() {
   const veilRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
+  const clipRef = useRef<HTMLDivElement>(null);
+  const firstTileRef = useRef<HTMLElement>(null);
+  const probeRef = useRef<HTMLDivElement>(null);
   const noteRef = useRef<HTMLParagraphElement>(null);
   const descRef = useRef<HTMLDivElement>(null);
   const cueRef = useRef<HTMLParagraphElement>(null);
@@ -59,23 +62,56 @@ export default function ScrollEarth() {
         mark.style.fontSize = `${size}px`;
       }
 
-      const rise = smoothstep(0.56, 0.68, progress);
-      const travel = smoothstep(0.66, 0.86, progress);
-      const reveal = smoothstep(0.84, 0.96, progress);
+      const emerge = smoothstep(0.54, 0.7, progress);
+      const travel = smoothstep(0.74, 0.88, progress);
+      const reveal = smoothstep(0.86, 0.96, progress);
 
       if (veilRef.current) {
-        veilRef.current.style.opacity = String(smoothstep(0.5, 0.66, progress) * 0.94);
+        veilRef.current.style.opacity = String(smoothstep(0.68, 0.82, progress) * 0.92);
       }
       if (stageRef.current) {
-        stageRef.current.style.opacity = rise.toFixed(3);
-        stageRef.current.style.visibility = rise < 0.02 ? "hidden" : "visible";
-        stageRef.current.style.transform = `translateY(${(1 - rise) * 24}vh)`;
+        stageRef.current.style.opacity = emerge < 0.01 ? "0" : "1";
+        stageRef.current.style.visibility = emerge < 0.01 ? "hidden" : "visible";
+        stageRef.current.style.transform = "none";
+      }
+      if (clipRef.current) {
+        clipRef.current.style.overflow = emerge < 0.98 ? "visible" : "hidden";
       }
       if (stripRef.current) {
-        const shift = Math.max(0, stripRef.current.scrollWidth - window.innerWidth);
+        const desc = descRef.current;
+        const descBox = desc?.getBoundingClientRect();
+        const beside =
+          descBox &&
+          descBox.width > 40 &&
+          getComputedStyle(desc).position === "absolute";
+        const stopAt = beside ? Math.max(280, descBox.left - 36) : window.innerWidth;
+        const shift = Math.max(0, stripRef.current.scrollWidth - stopAt);
         stripRef.current.style.transform = `translateX(${-travel * shift}px)`;
+
+        const tiles = stripRef.current.querySelectorAll("article");
+        tiles.forEach((tile, index) => {
+          if (index === 0) return;
+          tile.style.opacity = String(smoothstep(0.86, 1, emerge));
+        });
       }
-      if (noteRef.current) noteRef.current.style.opacity = String(rise * (1 - reveal));
+      const first = firstTileRef.current;
+      if (first) {
+        first.style.transformOrigin = "center center";
+        first.style.zIndex = "2";
+        if (emerge >= 0.995) {
+          first.style.transform = "none";
+        } else {
+          first.style.transform = "none";
+          const rect = first.getBoundingClientRect();
+          const nx = rect.left + rect.width / 2;
+          const ny = rect.top + rect.height / 2;
+          const k = 1 - emerge;
+          const scale = lerp(0.14, 1, emerge);
+          first.style.transform = `translate(${(window.innerWidth / 2 - nx) * k}px, ${(window.innerHeight / 2 - ny) * k}px) scale(${scale})`;
+        }
+      }
+      if (noteRef.current) noteRef.current.style.opacity = String(smoothstep(0.82, 1, emerge) * (1 - reveal));
+      if (probeRef.current) probeRef.current.style.opacity = String(smoothstep(0.82, 1, emerge));
       if (descRef.current) {
         descRef.current.style.opacity = reveal.toFixed(3);
         descRef.current.style.pointerEvents = reveal > 0.45 ? "auto" : "none";
@@ -152,10 +188,14 @@ export default function ScrollEarth() {
           ref={stageRef}
           className="absolute inset-x-0 top-[22vh] z-20 opacity-0"
         >
-          <div className="overflow-hidden">
+          <div ref={clipRef}>
             <div ref={stripRef} className="flex w-max gap-5 md:gap-8">
-              {PIXELS.map((pixel) => (
-                <article key={pixel.year} className="w-[calc(50vw-0.35rem)] shrink-0">
+              {PIXELS.map((pixel, index) => (
+                <article
+                  key={pixel.year}
+                  ref={index === 0 ? firstTileRef : undefined}
+                  className="w-[280px] shrink-0"
+                >
                   <div className="relative aspect-square overflow-hidden bg-[#0c1440]">
                     <img
                       src={`/api/tile?scene=urban&t=${pixel.t}&kind=photo`}
@@ -174,9 +214,12 @@ export default function ScrollEarth() {
           <p ref={noteRef} className="px-6 pt-5 text-center text-[12px] text-white/70 md:px-16 md:text-left">
             Five tiles of the same ground. Scroll moves through the years.
           </p>
+          <div ref={probeRef} className="opacity-0">
+            <KeyProbe />
+          </div>
           <div
             ref={descRef}
-            className="mx-auto mt-8 max-w-md px-6 text-[13px] leading-relaxed text-white/90 opacity-0 md:absolute md:right-[6vw] md:top-4 md:mx-0 md:mt-0 md:max-w-[280px]"
+            className="mx-auto mt-8 max-w-md px-6 text-[13px] leading-relaxed text-white/90 opacity-0 md:absolute md:right-10 md:top-0 md:mx-0 md:mt-0 md:w-[260px] md:max-w-[260px] md:px-0"
           >
             <p>
               A prompt names a place and a span of years. gAIa parses it, asks the land model for one
@@ -197,5 +240,66 @@ export default function ScrollEarth() {
         </p>
       </div>
     </div>
+  );
+}
+
+function KeyProbe() {
+  const [prompt, setPrompt] = useState("Is the Gemini key working?");
+  const [pending, setPending] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    const text = prompt.trim();
+    if (!text || pending) return;
+    setPending(true);
+    setResult(null);
+    try {
+      const response = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: text }),
+      });
+      const data = (await response.json().catch(() => null)) as { reply?: string; error?: string } | null;
+      if (response.ok && data?.reply) {
+        setResult({ ok: true, text: data.reply });
+      } else {
+        setResult({ ok: false, text: data?.error || "The key did not work." });
+      }
+    } catch {
+      setResult({ ok: false, text: "The request never reached the server." });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="mx-auto mt-4 w-full max-w-xl px-6">
+      <label htmlFor="key-probe" className="text-[11px] tracking-[0.18em] text-[#7dccff]">
+        Test the API key
+      </label>
+      <div className="mt-2 flex gap-2">
+        <input
+          id="key-probe"
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          className="min-w-0 flex-1 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-[13px] text-white outline-none placeholder:text-white/40 focus:border-[#7dccff]"
+          placeholder="Ask something"
+        />
+        <button
+          type="submit"
+          disabled={pending}
+          className="shrink-0 rounded-full bg-[#7dccff] px-4 py-2 text-[13px] text-[#071018] disabled:opacity-60"
+        >
+          {pending ? "Sending" : "Send"}
+        </button>
+      </div>
+      {result && (
+        <p className={`mt-3 max-h-24 overflow-auto text-[12px] leading-relaxed ${result.ok ? "text-white/85" : "text-[#f0b4a0]"}`}>
+          {result.ok ? "Key works. " : "Key did not work. "}
+          {result.text}
+        </p>
+      )}
+    </form>
   );
 }
