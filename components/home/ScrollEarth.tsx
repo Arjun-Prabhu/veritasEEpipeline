@@ -81,7 +81,8 @@ export default function ScrollEarth() {
         const desc = descRef.current;
         const descBox = desc?.getBoundingClientRect();
         const beside =
-          descBox &&
+          desc !== null &&
+          descBox !== undefined &&
           descBox.width > 40 &&
           getComputedStyle(desc).position === "absolute";
         const stopAt = beside ? Math.max(280, descBox.left - 36) : window.innerWidth;
