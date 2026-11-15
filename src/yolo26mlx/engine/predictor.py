@@ -1,0 +1,852 @@
+# Copyright (c) 2026 webAI, Inc.
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+"""
+YOLO26 Predictor - Pure MLX Implementation
+
+Inference pipeline for YOLO26 models with mx.compile optimization.
+"""
+
+from collections.abc import Generator
+from pathlib import Path
+
+import mlx.core as mx
+import mlx.nn as nn
+
+try:
+    import cv2
+
+    _HAS_CV2 = True
+except ImportError:
+    _HAS_CV2 = False
+import numpy as np
+from PIL import Image
+
+from yolo26mlx.engine.results import OBB, Boxes, Keypoints, Masks, Results
+
+
+class Predictor:
+    """YOLO26 Prediction class - Pure MLX.
+
+    Optimized inference with mx.compile for maximum performance on Apple Silicon.
+    """
+
+    def __init__(
+        self,
+        model: nn.Module,
+        task: str = "detect",
+        names: dict[int, str] | None = None,
+        stride: mx.array | None = None,
+    ):
+        """Initialize predictor.
+
+        Args:
+            model: YOLO26 model for inference
+            task: Task type - 'detect', 'segment', 'pose', or 'obb'
+            names: Class names dictionary
+            stride: Model stride tensor
+        """
+        self.model = model
+        self.task = task
+        self.names = names or {}
+        self.stride = stride if stride is not None else mx.array([8.0, 16.0, 32.0])
+
+        # Compiled inference function
+        self._compiled_predict = None
+
+        # Set model to eval mode
+        if self.model is not None:
+            self.model.eval()
+
+    def __call__(
+        self,
+        source: str | Path | list | np.ndarray | Image.Image,
+        conf: float = 0.25,
+        imgsz: int = 640,
+        save: bool = False,
+        stream: bool = False,
+        rect: bool = True,
+    ) -> list[Results] | Generator[Results, None, None]:
+        """Run inference.
+
+        Args:
+            source: Image path, directory, list, numpy array, or PIL Image
+            conf: Confidence threshold
+            imgsz: Input image size
+            save: Save results to disk
+            stream: Return generator for memory efficiency
+            rect: Rectangular inference (pad to stride-aligned dims, not square).
+                  Matches ultralytics predict default. Faster for non-square images.
+
+        Returns:
+            List of Results objects (or generator if stream=True)
+        """
+        # Process source
+        images, paths, orig_imgs, letterbox_infos = self._load_source(source, imgsz, rect=rect)
+
+        if stream:
+            return self._stream_predict(images, paths, orig_imgs, letterbox_infos, conf, save)
+        else:
+            return self._batch_predict(images, paths, orig_imgs, letterbox_infos, conf, save)
+
+    def _load_source(
+        self, source: str | Path | list | np.ndarray | Image.Image, imgsz: int, rect: bool = True
+    ) -> tuple:
+        """Load and preprocess source images.
+
+        Args:
+            source: Image source(s)
+            imgsz: Target image size
+            rect: Rectangular letterbox (stride-aligned, non-square)
+
+        Returns:
+            Tuple of (preprocessed image batch, paths, original images, letterbox info dicts)
+        """
+        if isinstance(source, str | Path):
+            source_path = Path(source)
+            if source_path.is_dir():
+                # Directory of images
+                sources = list(source_path.glob("*.jpg")) + list(source_path.glob("*.png"))
+            else:
+                sources = [source_path]
+        elif isinstance(source, np.ndarray):
+            # Single numpy array
+            sources = [source]
+        elif isinstance(source, Image.Image):
+            # Single PIL Image
+            sources = [source]
+        elif isinstance(source, list):
+            sources = source
+        else:
+            sources = [source]
+
+        images = []
+        paths = []
+        orig_imgs = []
+        letterbox_infos = []
+
+        for src in sources:
+            img, path, orig, lb_info = self._preprocess_single(src, imgsz, rect=rect)
+            images.append(img)
+            paths.append(path)
+            orig_imgs.append(orig)
+            letterbox_infos.append(lb_info)
+
+        # Stack into batch
+        batch = mx.stack(images, axis=0) if len(images) > 1 else mx.expand_dims(images[0], axis=0)
+
+        return batch, paths, orig_imgs, letterbox_infos
+
+    def _preprocess_single(
+        self, source: str | Path | np.ndarray | Image.Image, imgsz: int, rect: bool = True
+    ) -> tuple:
+        """Preprocess a single image.
+
+        Uses OpenCV (C-backed) for fast image loading and resizing when available,
+        falling back to PIL for compatibility.
+
+        Args:
+            source: Image source
+            imgsz: Target size
+            rect: Rectangular letterbox (stride-aligned, non-square)
+
+        Returns:
+            Tuple of (preprocessed tensor, path, original image, letterbox info dict)
+        """
+        if _HAS_CV2:
+            return self._preprocess_cv2(source, imgsz, rect=rect)
+        return self._preprocess_pil(source, imgsz, rect=rect)
+
+    def _preprocess_cv2(
+        self, source: str | Path | np.ndarray | Image.Image, imgsz: int, rect: bool = True
+    ) -> tuple:
+        """Fast preprocessing using OpenCV (C-backed, ~5x faster than PIL).
+
+        Args:
+            source: Image path, PIL Image, or numpy array to preprocess.
+            imgsz: Target image size for letterbox resize.
+            rect: If True, pad to stride-aligned dims instead of square.
+
+        Returns:
+            Tuple of (MLX tensor, path string, original numpy image, letterbox info dict).
+        """
+        if isinstance(source, str | Path):
+            path = str(source)
+            img = cv2.imread(path)
+            if img is None:
+                raise FileNotFoundError(f"Could not load image: {path}")
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        elif isinstance(source, Image.Image):
+            path = ""
+            img = np.array(source.convert("RGB"))
+        elif isinstance(source, np.ndarray):
+            path = ""
+            img = source if source.ndim == 3 else source
+            if img.shape[2] == 4:  # RGBA
+                img = img[:, :, :3]
+            # VideoCapture / external frames are typically BGR — convert to RGB
+            # to match the file/PIL paths and ensure correct model input + plotting.
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        else:
+            raise ValueError(f"Unsupported source type: {type(source)}")
+
+        # Store original — skip copy for fresh allocations (file/PIL paths)
+        if isinstance(source, np.ndarray):
+            orig_img = img.copy()  # User's array — protect against mutation
+        else:
+            orig_img = img  # cv2.imread or np.array(PIL) — already a fresh alloc
+
+        # Letterbox resize using OpenCV
+        img_resized, ratio, (dw, dh) = self._letterbox_cv2(img, imgsz, auto=rect)
+
+        # Convert to float32 and normalize (in-place for speed)
+        img_array = img_resized.astype(np.float32, copy=False)
+        img_array *= 1.0 / 255.0
+
+        # Store letterbox params for postprocess coordinate rescaling
+        letterbox_info = {"ratio": ratio, "dw": dw, "dh": dh}
+
+        return mx.array(img_array), path, orig_img, letterbox_info
+
+    def _preprocess_pil(
+        self, source: str | Path | np.ndarray | Image.Image, imgsz: int, rect: bool = True
+    ) -> tuple:
+        """Fallback preprocessing using PIL when OpenCV is unavailable.
+
+        Args:
+            source: Image path, PIL Image, or numpy array to preprocess.
+            imgsz: Target image size for letterbox resize.
+            rect: If True, pad to stride-aligned dims instead of square.
+
+        Returns:
+            Tuple of (MLX tensor, path string, original numpy image, letterbox info dict).
+        """
+        if isinstance(source, str | Path):
+            path = str(source)
+            img = Image.open(source).convert("RGB")
+        elif isinstance(source, Image.Image):
+            path = ""
+            img = source.convert("RGB")
+        elif isinstance(source, np.ndarray):
+            path = ""
+            img = Image.fromarray(source.astype(np.uint8)).convert("RGB")
+        else:
+            raise ValueError(f"Unsupported source type: {type(source)}")
+
+        orig_img = np.array(img)
+        img_resized, ratio, (dw, dh) = self._letterbox_pil(img, imgsz, auto=rect)
+        img_array = np.array(img_resized, dtype=np.float32) / 255.0
+
+        # Store letterbox params for postprocess coordinate rescaling
+        letterbox_info = {"ratio": ratio, "dw": dw, "dh": dh}
+
+        return mx.array(img_array), path, orig_img, letterbox_info
+
+    def _letterbox_cv2(
+        self,
+        img: np.ndarray,
+        new_size: int,
+        color: tuple = (114, 114, 114),
+        auto: bool = False,
+        stride: int = 32,
+    ) -> tuple:
+        """Fast letterbox resize using OpenCV.
+
+        Args:
+            img: numpy array (H, W, C) in RGB
+            new_size: Target size
+            color: Padding color
+            auto: If True, pad to stride-aligned dims (non-square, faster).
+                  If False, pad to square new_size x new_size.
+            stride: Stride for auto-alignment (default 32)
+
+        Returns:
+            Tuple of (resized image, scale ratio, padding)
+        """
+        h, w = img.shape[:2]
+
+        # Compute scale (round, matching Ultralytics LetterBox new_unpad).
+        ratio = min(new_size / h, new_size / w)
+        new_w, new_h = int(round(w * ratio)), int(round(h * ratio))
+
+        # Resize with OpenCV (much faster than PIL)
+        img_resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+        # Compute padding
+        if auto:
+            # Pad to nearest stride multiple (non-square, fewer pixels)
+            dw = (stride - new_w % stride) % stride
+            dh = (stride - new_h % stride) % stride
+        else:
+            # Pad to square
+            dw = new_size - new_w
+            dh = new_size - new_h
+
+        dw /= 2
+        dh /= 2
+
+        # Pad with cv2.copyMakeBorder (faster than creating new image + paste)
+        top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
+        left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
+        padded = cv2.copyMakeBorder(
+            img_resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color
+        )
+
+        return padded, ratio, (dw, dh)
+
+    def _letterbox_pil(
+        self,
+        img: Image.Image,
+        new_size: int,
+        color: tuple = (114, 114, 114),
+        auto: bool = False,
+        stride: int = 32,
+    ) -> tuple:
+        """Fallback letterbox resize using PIL.
+
+        Args:
+            img: PIL Image in RGB mode.
+            new_size: Target size (longest edge).
+            color: Padding fill color (R, G, B).
+            auto: If True, pad to stride-aligned dims (non-square, faster).
+                  If False, pad to square new_size x new_size.
+            stride: Stride for auto-alignment (default 32).
+
+        Returns:
+            Tuple of (padded PIL Image, scale ratio, (dw, dh) padding).
+        """
+        w, h = img.size
+        ratio = min(new_size / h, new_size / w)
+        new_w, new_h = int(round(w * ratio)), int(round(h * ratio))
+        img_resized = img.resize((new_w, new_h), Image.BILINEAR)
+
+        if auto:
+            pad_w = (stride - new_w % stride) % stride
+            pad_h = (stride - new_h % stride) % stride
+        else:
+            pad_w = new_size - new_w
+            pad_h = new_size - new_h
+
+        dw = pad_w / 2
+        dh = pad_h / 2
+
+        canvas_w = new_w + int(round(dw - 0.1)) + int(round(dw + 0.1))
+        canvas_h = new_h + int(round(dh - 0.1)) + int(round(dh + 0.1))
+        padded = Image.new("RGB", (canvas_w, canvas_h), color)
+        padded.paste(img_resized, (int(round(dw - 0.1)), int(round(dh - 0.1))))
+        return padded, ratio, (dw, dh)
+
+    def _batch_predict(
+        self,
+        images: mx.array,
+        paths: list[str],
+        orig_imgs: list[np.ndarray],
+        letterbox_infos: list[dict],
+        conf: float,
+        save: bool,
+    ) -> list[Results]:
+        """Run batch prediction.
+
+        Args:
+            images: Preprocessed image batch (B, H, W, C)
+            paths: Image paths
+            orig_imgs: Original images
+            letterbox_infos: Letterbox ratio/padding per image
+            conf: Confidence threshold
+            save: Save results
+
+        Returns:
+            List of Results objects
+        """
+        # Run inference with compiled model
+        preds = self._predict(images)
+
+        # Force evaluation (handles both mx.array and tuple of mx.arrays)
+        if isinstance(preds, tuple):
+            mx.eval(*preds)
+        else:
+            mx.eval(preds)
+
+        # Post-process predictions
+        results = []
+        for i in range(len(paths)):
+            result = self._postprocess(
+                preds=preds,
+                batch_idx=i,
+                orig_img=orig_imgs[i],
+                path=paths[i],
+                letterbox_info=letterbox_infos[i],
+                conf=conf,
+            )
+            results.append(result)
+
+            if save:
+                result.save()
+
+        return results
+
+    def _stream_predict(
+        self,
+        images: mx.array,
+        paths: list[str],
+        orig_imgs: list[np.ndarray],
+        letterbox_infos: list[dict],
+        conf: float,
+        save: bool,
+    ) -> Generator[Results, None, None]:
+        """Yield Results one image at a time for memory-efficient streaming.
+
+        Args:
+            images: Preprocessed image batch (B, H, W, C).
+            paths: Image file paths corresponding to each image.
+            orig_imgs: Original unprocessed images as numpy arrays.
+            letterbox_infos: Letterbox ratio/padding dicts for coordinate rescaling.
+            conf: Confidence threshold for filtering detections.
+            save: If True, save each annotated result to disk.
+
+        Yields:
+            Results object for each image in the batch.
+        """
+        for i in range(images.shape[0]):
+            # Process single image
+            img = mx.expand_dims(images[i], axis=0)
+            preds = self._predict(img)
+            if isinstance(preds, tuple):
+                mx.eval(*preds)
+            else:
+                mx.eval(preds)
+
+            result = self._postprocess(
+                preds=preds,
+                batch_idx=0,
+                orig_img=orig_imgs[i],
+                path=paths[i],
+                letterbox_info=letterbox_infos[i],
+                conf=conf,
+            )
+
+            if save:
+                result.save()
+
+            yield result
+
+    def _predict(self, images: mx.array) -> mx.array:
+        """Run model inference.
+
+        Uses mx.compile for optimized inference on Apple Silicon.
+        Automatically enables compile_for_inference() on the model for
+        27-50% faster inference via JIT compilation.
+
+        Args:
+            images: Preprocessed image tensor (B, H, W, C)
+
+        Returns:
+            Model predictions
+        """
+        if self.model is None:
+            raise ValueError("Model not loaded")
+
+        # Enable compiled inference on first call (27-50% faster)
+        if self._compiled_predict is None:
+            if hasattr(self.model, "compile_for_inference"):
+                self.model.compile_for_inference()
+            self._compiled_predict = True  # Mark as initialized
+
+        # Run inference (uses compiled path transparently via model.__call__)
+        return self.model(images)
+
+    def _postprocess(
+        self,
+        preds,
+        batch_idx: int,
+        orig_img: np.ndarray,
+        path: str,
+        letterbox_info: dict,
+        conf: float,
+    ) -> Results:
+        """Post-process model predictions.
+
+        Args:
+            preds: Raw model outputs. For detection: mx.array (B, N, 6).
+                   For segmentation: tuple of (mx.array (B, N, 6+nm), mx.array protos).
+            batch_idx: Batch index
+            orig_img: Original image
+            path: Image path
+            letterbox_info: Letterbox params {ratio, dw, dh} for coordinate rescaling
+            conf: Confidence threshold
+
+        Returns:
+            Results object
+        """
+        # Segmentation returns (det_with_coeffs, protos) tuple
+        protos = None
+        if isinstance(preds, tuple) and self.task == "segment":
+            det_preds, proto_preds = preds
+            pred = det_preds[batch_idx] if det_preds.shape[0] > 1 else det_preds[0]
+            protos = proto_preds[batch_idx] if proto_preds.shape[0] > 1 else proto_preds[0]
+            if isinstance(pred, mx.array):
+                pred = np.array(pred)
+            if isinstance(protos, mx.array):
+                protos = np.array(protos)
+        else:
+            if isinstance(preds, list | tuple):
+                pred = preds[batch_idx] if len(preds) > 1 else preds[0]
+            elif isinstance(preds, mx.array):
+                pred = preds[batch_idx] if preds.shape[0] > 1 else preds[0]
+            else:
+                pred = preds
+            if isinstance(pred, mx.array):
+                pred = np.array(pred)
+
+        # Apply task-specific post-processing
+        if self.task == "detect":
+            boxes = self._postprocess_detect(pred, orig_img.shape[:2], letterbox_info, conf)
+            return Results(orig_img=orig_img, path=path, names=self.names, boxes=boxes)
+        elif self.task == "segment":
+            boxes, masks = self._postprocess_segment(
+                pred, protos, orig_img.shape[:2], letterbox_info, conf
+            )
+            return Results(orig_img=orig_img, path=path, names=self.names, boxes=boxes, masks=masks)
+        elif self.task == "pose":
+            boxes, keypoints = self._postprocess_pose(
+                pred, orig_img.shape[:2], letterbox_info, conf
+            )
+            return Results(
+                orig_img=orig_img, path=path, names=self.names, boxes=boxes, keypoints=keypoints
+            )
+        elif self.task == "obb":
+            obb_results = self._postprocess_obb(orig_img.shape[:2])
+            return Results(orig_img=orig_img, path=path, names=self.names, obb=obb_results)
+        else:
+            return Results(orig_img=orig_img, path=path, names=self.names)
+
+    def _postprocess_detect(
+        self, pred: np.ndarray, orig_shape: tuple, letterbox_info: dict, conf: float
+    ) -> Boxes:
+        """Post-process detection predictions.
+
+        YOLO26 with end2end=True outputs [cx, cy, w, h, conf, class_idx] per detection.
+        Non-end2end outputs [cx, cy, w, h, class_scores...] per anchor.
+
+        Steps:
+        1. Parse end2end vs non-end2end output format
+        2. Filter by confidence
+        3. Convert xywh → xyxy
+        4. Rescale from letterboxed coordinates → original image coordinates
+        5. Clip to image bounds
+
+        Args:
+            pred: Raw predictions (N, 6) for end2end or (N, 4+nc) for non-end2end
+            orig_shape: Original image shape (H, W)
+            letterbox_info: {'ratio': float, 'dw': float, 'dh': float}
+            conf: Confidence threshold
+
+        Returns:
+            Boxes object with [x1, y1, x2, y2, conf, cls] in original image coords
+        """
+        if pred is None or len(pred) == 0:
+            return Boxes(np.empty((0, 6)), orig_shape)
+
+        # Ensure 2D
+        if pred.ndim == 1:
+            pred = pred.reshape(1, -1)
+
+        n_cols = pred.shape[-1]
+
+        if n_cols == 6:
+            # End2end format: [cx, cy, w, h, conf, class_idx]
+            boxes_xywh = pred[:, :4]
+            scores = pred[:, 4]
+            cls = pred[:, 5]
+        else:
+            # Non-end2end format: [cx, cy, w, h, class_scores...]
+            boxes_xywh = pred[:, :4]
+            class_scores = pred[:, 4:]
+            scores = np.max(class_scores, axis=-1)
+            cls = np.argmax(class_scores, axis=-1).astype(np.float32)
+
+        # Filter by confidence
+        mask = scores > conf
+        boxes_xywh = boxes_xywh[mask]
+        scores = scores[mask]
+        cls = cls[mask]
+
+        if len(boxes_xywh) == 0:
+            return Boxes(np.empty((0, 6)), orig_shape)
+
+        # Convert xywh (center) → xyxy (corners)
+        cx, cy, w, h = boxes_xywh[:, 0], boxes_xywh[:, 1], boxes_xywh[:, 2], boxes_xywh[:, 3]
+        x1 = cx - w / 2
+        y1 = cy - h / 2
+        x2 = cx + w / 2
+        y2 = cy + h / 2
+
+        # Rescale from letterboxed coordinates → original image coordinates
+        # Letterbox: original → resize by ratio → pad by (dw, dh)
+        # Reverse: subtract padding → divide by ratio
+        ratio = letterbox_info["ratio"]
+        dw = letterbox_info["dw"]
+        dh = letterbox_info["dh"]
+
+        x1 = (x1 - dw) / ratio
+        y1 = (y1 - dh) / ratio
+        x2 = (x2 - dw) / ratio
+        y2 = (y2 - dh) / ratio
+
+        # Clip to original image bounds
+        orig_h, orig_w = orig_shape
+        x1 = np.clip(x1, 0, orig_w)
+        y1 = np.clip(y1, 0, orig_h)
+        x2 = np.clip(x2, 0, orig_w)
+        y2 = np.clip(y2, 0, orig_h)
+
+        # Combine into output format [x1, y1, x2, y2, conf, cls]
+        boxes_xyxy = np.stack([x1, y1, x2, y2], axis=1)
+        output = np.column_stack([boxes_xyxy, scores, cls])
+
+        return Boxes(output, orig_shape)
+
+    def _postprocess_segment(
+        self,
+        pred: np.ndarray,
+        protos: np.ndarray | None,
+        orig_shape: tuple,
+        letterbox_info: dict,
+        conf: float,
+    ) -> tuple:
+        """Post-process segmentation predictions into Boxes and Masks.
+
+        Segment26 output format (end2end): each detection row is
+        [cx, cy, w, h, conf, class_idx, mask_coeff_0, ..., mask_coeff_{nm-1}].
+
+        Steps:
+        1. Split detection columns ([:6]) from mask coefficients ([6:])
+        2. Filter by confidence and rescale boxes (reuse detect logic)
+        3. Compute instance masks: coefficients @ prototypes, crop to box, binarize
+
+        Args:
+            pred: Model output (N, 6+nm) for one image.
+            protos: Mask prototypes (H_proto, W_proto, nm) in HWC from Proto26.
+            orig_shape: Original image shape (H, W) before preprocessing.
+            letterbox_info: Dict with 'ratio', 'dw', 'dh' for coordinate rescaling.
+            conf: Confidence threshold.
+
+        Returns:
+            Tuple of (Boxes, Masks) for this image.
+        """
+        if pred is None or len(pred) == 0 or protos is None:
+            return Boxes(np.empty((0, 6)), orig_shape), Masks(None, orig_shape)
+
+        if pred.ndim == 1:
+            pred = pred.reshape(1, -1)
+
+        n_cols = pred.shape[-1]
+
+        if n_cols <= 6:
+            boxes = self._postprocess_detect(pred, orig_shape, letterbox_info, conf)
+            return boxes, Masks(None, orig_shape)
+
+        # Split: first 6 columns are detection, rest are mask coefficients
+        det_pred = pred[:, :6]
+        mask_coeffs = pred[:, 6:]
+
+        # Filter by confidence
+        if det_pred.shape[-1] == 6:
+            scores = det_pred[:, 4]
+        else:
+            scores = np.max(det_pred[:, 4:], axis=-1)
+        conf_mask = scores > conf
+
+        det_pred = det_pred[conf_mask]
+        mask_coeffs = mask_coeffs[conf_mask]
+
+        if len(det_pred) == 0:
+            return Boxes(np.empty((0, 6)), orig_shape), Masks(None, orig_shape)
+
+        boxes = self._postprocess_detect(det_pred, orig_shape, letterbox_info, conf)
+
+        if boxes.data.shape[0] == 0:
+            return boxes, Masks(None, orig_shape)
+
+        # protos shape: (mask_h, mask_w, mask_dim) in HWC
+        mh, mw, c = protos.shape
+        masks = mask_coeffs @ protos.reshape(-1, c).T  # (N, mh*mw)
+        masks = masks.reshape(-1, mh, mw)
+
+        ratio = letterbox_info["ratio"]
+        dw = letterbox_info["dw"]
+        dh = letterbox_info["dh"]
+        letterbox_h = orig_shape[0] * ratio + 2 * dh
+        letterbox_w = orig_shape[1] * ratio + 2 * dw
+
+        # Native (process_mask_native) ordering: upsample float masks to the
+        # full letterbox size, strip padding, resize to original image
+        # resolution, then crop with pixel-accurate xyxy edges in the original
+        # frame. Cropping at proto resolution (then upsampling) quantizes
+        # mask boundaries to ~4-pixel granularity, which materially hurts
+        # COCO mask mAP -- especially AP@small.
+        n = masks.shape[0]
+        lb_h = int(round(letterbox_h))
+        lb_w = int(round(letterbox_w))
+        if _HAS_CV2:
+            up_lb = np.zeros((n, lb_h, lb_w), dtype=np.float32)
+            for j in range(n):
+                up_lb[j] = cv2.resize(masks[j], (lb_w, lb_h), interpolation=cv2.INTER_LINEAR)
+        else:
+            import math
+
+            sh = math.ceil(lb_h / mh)
+            sw = math.ceil(lb_w / mw)
+            up_lb = np.repeat(np.repeat(masks, sh, axis=1), sw, axis=2)[:, :lb_h, :lb_w]
+
+        # Strip letterbox padding at full resolution (bias by 0.1 to avoid
+        # including edge padding pixels, matching ultralytics scale_masks).
+        top = int(round(dh - 0.1)) if dh > 0 else 0
+        left = int(round(dw - 0.1)) if dw > 0 else 0
+        bottom = lb_h - int(round(dh + 0.1)) if dh > 0 else lb_h
+        right = lb_w - int(round(dw + 0.1)) if dw > 0 else lb_w
+        masks = up_lb[:, top:bottom, left:right]
+
+        orig_h, orig_w = orig_shape
+        cur_h, cur_w = masks.shape[1], masks.shape[2]
+        if cur_h != orig_h or cur_w != orig_w:
+            if _HAS_CV2:
+                resized = np.zeros((n, orig_h, orig_w), dtype=np.float32)
+                for j in range(n):
+                    resized[j] = cv2.resize(
+                        masks[j], (orig_w, orig_h), interpolation=cv2.INTER_LINEAR
+                    )
+                masks = resized
+            else:
+                import math
+
+                sh = math.ceil(orig_h / cur_h)
+                sw = math.ceil(orig_w / cur_w)
+                masks = np.repeat(np.repeat(masks, sh, axis=1), sw, axis=2)[:, :orig_h, :orig_w]
+
+        # Crop with pixel-accurate edges in the original image frame.
+        xyxy_orig = boxes.xyxy.astype(np.float32)
+        cx1 = np.clip(np.round(xyxy_orig[:, 0]).astype(np.int32), 0, orig_w)
+        cy1 = np.clip(np.round(xyxy_orig[:, 1]).astype(np.int32), 0, orig_h)
+        cx2 = np.clip(np.round(xyxy_orig[:, 2]).astype(np.int32), 0, orig_w)
+        cy2 = np.clip(np.round(xyxy_orig[:, 3]).astype(np.int32), 0, orig_h)
+        rx = np.arange(orig_w, dtype=np.float32)[None, None, :]
+        ry = np.arange(orig_h, dtype=np.float32)[None, :, None]
+        crop = (
+            (rx >= cx1[:, None, None])
+            * (rx < cx2[:, None, None])
+            * (ry >= cy1[:, None, None])
+            * (ry < cy2[:, None, None])
+        )
+        masks = masks * crop
+
+        masks = (masks > 0).astype(np.uint8)
+
+        return boxes, Masks(masks, orig_shape)
+
+    def _postprocess_pose(
+        self, pred: np.ndarray, orig_shape: tuple, letterbox_info: dict, conf: float
+    ) -> tuple:
+        """Post-process pose predictions into Boxes and Keypoints.
+
+        Pose26 output format (end2end): each detection row is
+        [cx, cy, w, h, conf, class_idx, kpt_0_x, kpt_0_y, kpt_0_v, ...], where the
+        keypoint values are already decoded to letterboxed model-input space and the
+        visibility channel has already passed through sigmoid (done in the head).
+
+        Steps:
+        1. Split detection columns ([:6]) from keypoint values ([6:]).
+        2. Filter by confidence and rescale boxes (reuse detect logic).
+        3. Rescale keypoint x/y from letterboxed coordinates back to the original
+           image (undo padding + scale, same transform as boxes); visibility passes through.
+
+        Args:
+            pred: Raw model output array (N, 6 + nk) for one image.
+            orig_shape: Original image shape (H, W) before preprocessing.
+            letterbox_info: Dict with 'ratio', 'dw', 'dh' for coordinate rescaling.
+            conf: Confidence threshold for filtering detections.
+
+        Returns:
+            Tuple of (Boxes, Keypoints) for this image.
+        """
+        if pred is None or len(pred) == 0:
+            return Boxes(np.empty((0, 6)), orig_shape), Keypoints(None, orig_shape)
+
+        if pred.ndim == 1:
+            pred = pred.reshape(1, -1)
+
+        n_cols = pred.shape[-1]
+
+        if n_cols <= 6:
+            boxes = self._postprocess_detect(pred, orig_shape, letterbox_info, conf)
+            return boxes, Keypoints(None, orig_shape)
+
+        # Split: first 6 columns are detection, rest are keypoint values.
+        det_pred = pred[:, :6]
+        kpts = pred[:, 6:]
+
+        # Determine keypoint layout (num keypoints, dims) from the model head.
+        nk = kpts.shape[-1]
+        kpt_shape = self._get_kpt_shape()
+        if kpt_shape is not None:
+            num_kpts, ndim = int(kpt_shape[0]), int(kpt_shape[1])
+        else:
+            ndim = 3
+            num_kpts = nk // ndim
+
+        # Filter detections and keypoints together by confidence (preserve order).
+        scores = det_pred[:, 4] if det_pred.shape[-1] == 6 else np.max(det_pred[:, 4:], axis=-1)
+        conf_mask = scores > conf
+        det_pred = det_pred[conf_mask]
+        kpts = kpts[conf_mask]
+
+        if len(det_pred) == 0:
+            return Boxes(np.empty((0, 6)), orig_shape), Keypoints(None, orig_shape)
+
+        boxes = self._postprocess_detect(det_pred, orig_shape, letterbox_info, conf)
+
+        if boxes.data.shape[0] == 0:
+            return boxes, Keypoints(None, orig_shape)
+
+        # Reshape to (N, K, ndim) and rescale x/y to original image coordinates.
+        kpts = kpts.reshape(-1, num_kpts, ndim).astype(np.float32)
+        ratio = letterbox_info["ratio"]
+        dw = letterbox_info["dw"]
+        dh = letterbox_info["dh"]
+
+        kpts[..., 0] = (kpts[..., 0] - dw) / ratio
+        kpts[..., 1] = (kpts[..., 1] - dh) / ratio
+
+        # Clip keypoint coordinates to image bounds (matches Ultralytics scale_coords).
+        orig_h, orig_w = orig_shape
+        kpts[..., 0] = np.clip(kpts[..., 0], 0, orig_w)
+        kpts[..., 1] = np.clip(kpts[..., 1], 0, orig_h)
+
+        return boxes, Keypoints(kpts, orig_shape)
+
+    def _get_kpt_shape(self) -> tuple | None:
+        """Read the keypoint shape (num_keypoints, dims) from the model's pose head.
+
+        Returns:
+            The head's kpt_shape as a tuple, or None if it cannot be determined.
+        """
+        inner = getattr(self.model, "model", None)
+        if inner is None:
+            return None
+        try:
+            head = inner[len(inner) - 1]
+        except (TypeError, IndexError, KeyError):
+            return None
+        kpt_shape = getattr(head, "kpt_shape", None)
+        return tuple(kpt_shape) if kpt_shape is not None else None
+
+    def _postprocess_obb(self, orig_shape: tuple) -> OBB:
+        """Post-process oriented bounding box predictions.
+
+        Args:
+            orig_shape: Original image shape (H, W) before preprocessing.
+
+        Returns:
+            OBB object with oriented bounding boxes (currently empty placeholder).
+        """
+        # TODO: Implement OBB post-processing
+        return OBB(np.empty((0, 7)), orig_shape)

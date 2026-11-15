@@ -1,0 +1,26 @@
+# Copyright (c) 2026 webAI, Inc.
+
+# COCO 2017 Dataset Configuration for YOLO26 MLX
+# https://cocodataset.org
+# Same images as Ultralytics official COCO val2017 (5000 images)
+
+# Dataset paths - relative to this project root
+path: /Users/arjunprabhu/PycharmProjects/PythonProject/veritasdyanmictest/data
+train: images/train  # train images directory
+val: images/val  # val images directory - 5000 images
+#test: images/test2017  # test images (optional)
+
+# Classes (80 COCO classes)
+names:
+  0: water
+  1: trees
+  2: grass
+  3: flooded_vegetation
+  4: crops
+  5: shrub_and_scrub
+  6: built
+  7: bare
+  8: snow_and_ice
+
+# Number of classes
+nc: 9

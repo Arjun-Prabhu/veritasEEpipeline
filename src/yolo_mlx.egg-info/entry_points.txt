@@ -1,0 +1,5 @@
+[console_scripts]
+yolo-mlx = yolo26mlx.cli:main
+yolo26 = yolo26mlx.cli:main
+yolo26mlx = yolo26mlx.cli:main
+yolomlx = yolo26mlx.cli:main

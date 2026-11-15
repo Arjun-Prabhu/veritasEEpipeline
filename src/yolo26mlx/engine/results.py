@@ -1,0 +1,747 @@
+# Copyright (c) 2026 webAI, Inc.
+"""
+YOLO26 Results Class - Pure MLX Implementation
+
+Results container for inference outputs.
+"""
+
+import colorsys
+from pathlib import Path
+from typing import Any
+
+import mlx.core as mx
+import numpy as np
+from PIL import Image, ImageDraw
+
+
+def _get_instance_color(cls_id: int, instance_idx: int) -> tuple[int, int, int]:
+    """Generate a distinct RGB color for a segmentation instance.
+
+    Combines class ID and instance index for visual diversity.
+
+    Args:
+        cls_id: Class index for base hue.
+        instance_idx: Instance index for hue offset.
+
+    Returns:
+        (R, G, B) tuple with values in 0-255.
+    """
+    hue = (cls_id * 0.1 + instance_idx * 0.618033988749895) % 1.0
+    r, g, b = colorsys.hsv_to_rgb(hue, 0.8, 0.95)
+    return (int(r * 255), int(g * 255), int(b * 255))
+
+
+def _get_track_color(track_id: int) -> tuple[int, int, int]:
+    """Generate a deterministic RGB color for a track ID.
+
+    Uses golden-ratio hue spacing for maximum visual separation.
+
+    Args:
+        track_id: Integer track identifier.
+
+    Returns:
+        (R, G, B) tuple with values in 0–255.
+    """
+    hue = (track_id * 0.618033988749895) % 1.0
+    r, g, b = colorsys.hsv_to_rgb(hue, 0.9, 0.9)
+    return (int(r * 255), int(g * 255), int(b * 255))
+
+
+# COCO 17-keypoint skeleton and color palette (matches the Ultralytics pose
+# visualization). Skeleton edges and color indices are 1-indexed keypoints.
+_POSE_PALETTE = [
+    (255, 128, 0),
+    (255, 153, 51),
+    (255, 178, 102),
+    (230, 230, 0),
+    (255, 153, 255),
+    (153, 204, 255),
+    (255, 102, 255),
+    (255, 51, 255),
+    (102, 178, 255),
+    (51, 153, 255),
+    (255, 153, 153),
+    (255, 102, 102),
+    (255, 51, 51),
+    (153, 255, 153),
+    (102, 255, 102),
+    (51, 255, 51),
+    (0, 255, 0),
+    (0, 0, 255),
+    (255, 0, 0),
+    (255, 255, 255),
+]
+
+# COCO skeleton limbs (1-indexed keypoint pairs).
+_POSE_SKELETON = [
+    [16, 14],
+    [14, 12],
+    [17, 15],
+    [15, 13],
+    [12, 13],
+    [6, 12],
+    [7, 13],
+    [6, 7],
+    [6, 8],
+    [7, 9],
+    [8, 10],
+    [9, 11],
+    [2, 3],
+    [1, 2],
+    [1, 3],
+    [2, 4],
+    [3, 5],
+    [4, 6],
+    [5, 7],
+]
+
+# Palette index per limb / per keypoint (COCO-17).
+_POSE_LIMB_COLOR = [9, 9, 9, 9, 7, 7, 7, 0, 0, 0, 0, 0, 16, 16, 16, 16, 16, 16, 16]
+_POSE_KPT_COLOR = [16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9]
+
+
+class Boxes:
+    """Container for detection bounding boxes.
+
+    Supports YOLO26 end-to-end detection outputs.
+
+    Attributes:
+        data: Bounding box array with shape (N, 6) as [x1, y1, x2, y2, conf, cls].
+        orig_shape: Original image dimensions as (height, width).
+    """
+
+    def __init__(
+        self,
+        boxes: mx.array | np.ndarray,
+        orig_shape: tuple[int, int],
+        track_ids: np.ndarray | None = None,
+    ):
+        """Initialize Boxes.
+
+        Args:
+            boxes: Bounding boxes array with shape (N, 6) containing
+                   [x1, y1, x2, y2, conf, cls]
+            orig_shape: Original image shape (height, width)
+            track_ids: Optional array of integer track IDs (N,)
+        """
+        if isinstance(boxes, mx.array):
+            boxes = np.array(boxes)
+
+        self.data = boxes  # (N, 6) - x1, y1, x2, y2, conf, cls
+        self.orig_shape = orig_shape
+        self._track_ids = track_ids
+
+    @property
+    def xyxy(self) -> np.ndarray:
+        """Bounding boxes in xyxy format (x1, y1, x2, y2)."""
+        return self.data[:, :4] if len(self.data) > 0 else np.empty((0, 4))
+
+    @property
+    def xywh(self) -> np.ndarray:
+        """Bounding boxes in xywh format (cx, cy, w, h)."""
+        if len(self.data) == 0:
+            return np.empty((0, 4))
+        boxes = self.xyxy
+        cx = (boxes[:, 0] + boxes[:, 2]) / 2
+        cy = (boxes[:, 1] + boxes[:, 3]) / 2
+        w = boxes[:, 2] - boxes[:, 0]
+        h = boxes[:, 3] - boxes[:, 1]
+        return np.stack([cx, cy, w, h], axis=1)
+
+    @property
+    def conf(self) -> np.ndarray:
+        """Detection confidence scores for each box."""
+        return self.data[:, 4] if len(self.data) > 0 else np.empty((0,))
+
+    @property
+    def cls(self) -> np.ndarray:
+        """Class index for each detected box."""
+        return self.data[:, 5] if len(self.data) > 0 else np.empty((0,))
+
+    @property
+    def id(self) -> np.ndarray | None:
+        """Track IDs for each box, or None if tracking is not active."""
+        return self._track_ids
+
+    @property
+    def is_track(self) -> bool:
+        """Whether tracking IDs are present."""
+        return self._track_ids is not None
+
+    def __getitem__(self, idx):
+        """Index or slice boxes.
+
+        Args:
+            idx: Integer index, slice, or boolean/integer array.
+
+        Returns:
+            New Boxes instance containing only the selected entries.
+        """
+        if isinstance(idx, int):
+            new_data = self.data[idx : idx + 1]
+        else:
+            new_data = self.data[idx]
+        new_ids = self._track_ids[idx] if self._track_ids is not None else None
+        if isinstance(idx, int) and new_ids is not None:
+            new_ids = new_ids.reshape(-1)
+        return Boxes(new_data, self.orig_shape, track_ids=new_ids)
+
+    def __len__(self) -> int:
+        """Return the number of detected boxes."""
+        return len(self.data)
+
+    def __repr__(self) -> str:
+        """Return string representation of Boxes with count and shape info."""
+        return f"Boxes(n={len(self)}, orig_shape={self.orig_shape})"
+
+
+class Masks:
+    """Container for segmentation masks.
+
+    Attributes:
+        data: Mask array with shape (N, H, W).
+        orig_shape: Original image dimensions as (height, width).
+    """
+
+    def __init__(self, masks: mx.array | np.ndarray, orig_shape: tuple[int, int]):
+        """Initialize Masks.
+
+        Args:
+            masks: Segmentation masks with shape (N, H, W)
+            orig_shape: Original image shape (height, width)
+        """
+        if isinstance(masks, mx.array):
+            masks = np.array(masks)
+
+        self.data = masks
+        self.orig_shape = orig_shape
+
+    @property
+    def masks(self) -> np.ndarray:
+        """Segmentation mask array with shape (N, H, W)."""
+        return self.data
+
+    def __len__(self) -> int:
+        """Return the number of segmentation masks."""
+        return len(self.data) if self.data is not None else 0
+
+    def __repr__(self) -> str:
+        """Return string representation of Masks with count and shape info."""
+        return f"Masks(n={len(self)}, shape={self.data.shape if self.data is not None else None})"
+
+
+class Keypoints:
+    """Container for pose keypoints.
+
+    Attributes:
+        data: Keypoints array with shape (N, K, 3) where 3 is (x, y, visibility).
+        orig_shape: Original image dimensions as (height, width).
+    """
+
+    def __init__(self, keypoints: mx.array | np.ndarray, orig_shape: tuple[int, int]):
+        """Initialize Keypoints.
+
+        Args:
+            keypoints: Keypoints array with shape (N, K, 3) where K is number of keypoints
+                       and 3 is (x, y, visibility)
+            orig_shape: Original image shape (height, width)
+        """
+        if isinstance(keypoints, mx.array):
+            keypoints = np.array(keypoints)
+
+        self.data = keypoints
+        self.orig_shape = orig_shape
+
+    @property
+    def xy(self) -> np.ndarray:
+        """Keypoint x, y coordinates with shape (N, K, 2)."""
+        return self.data[..., :2] if self.data is not None else None
+
+    @property
+    def conf(self) -> np.ndarray:
+        """Keypoint visibility/confidence scores with shape (N, K)."""
+        return self.data[..., 2] if self.data is not None else None
+
+    def __len__(self) -> int:
+        """Return the number of detected persons (keypoint sets)."""
+        return len(self.data) if self.data is not None else 0
+
+    def __repr__(self) -> str:
+        """Return string representation of Keypoints with count and shape info."""
+        return (
+            f"Keypoints(n={len(self)}, shape={self.data.shape if self.data is not None else None})"
+        )
+
+
+class OBB:
+    """Container for oriented bounding boxes.
+
+    Attributes:
+        data: OBB array with shape (N, 7) as [cx, cy, w, h, angle, conf, cls].
+        orig_shape: Original image dimensions as (height, width).
+    """
+
+    def __init__(self, obb: mx.array | np.ndarray, orig_shape: tuple[int, int]):
+        """Initialize OBB.
+
+        Args:
+            obb: OBB array with shape (N, 7) containing
+                 [cx, cy, w, h, angle, conf, cls]
+            orig_shape: Original image shape (height, width)
+        """
+        if isinstance(obb, mx.array):
+            obb = np.array(obb)
+
+        self.data = obb
+        self.orig_shape = orig_shape
+
+    @property
+    def xywhr(self) -> np.ndarray:
+        """OBB in xywhr format (cx, cy, w, h, rotation)."""
+        return self.data[:, :5] if len(self.data) > 0 else np.empty((0, 5))
+
+    @property
+    def conf(self) -> np.ndarray:
+        """Confidence score for each oriented bounding box."""
+        return self.data[:, 5] if len(self.data) > 0 else np.empty((0,))
+
+    @property
+    def cls(self) -> np.ndarray:
+        """Class index for each oriented bounding box."""
+        return self.data[:, 6] if len(self.data) > 0 else np.empty((0,))
+
+    def __len__(self) -> int:
+        """Return the number of oriented bounding boxes."""
+        return len(self.data)
+
+    def __repr__(self) -> str:
+        """Return string representation of OBB with count and shape info."""
+        return f"OBB(n={len(self)}, orig_shape={self.orig_shape})"
+
+
+class Results:
+    """Results container for YOLO26 inference outputs.
+
+    Unified container for detection, segmentation, pose, and OBB results.
+    """
+
+    def __init__(
+        self,
+        orig_img: np.ndarray,
+        path: str = "",
+        names: dict[int, str] | None = None,
+        boxes: Boxes | None = None,
+        masks: Masks | None = None,
+        keypoints: Keypoints | None = None,
+        obb: OBB | None = None,
+    ):
+        """Initialize Results.
+
+        Args:
+            orig_img: Original input image
+            path: Image path
+            names: Class names dict {id: name}
+            boxes: Detection boxes
+            masks: Segmentation masks
+            keypoints: Pose keypoints
+            obb: Oriented bounding boxes
+        """
+        self.orig_img = orig_img
+        self.orig_shape = orig_img.shape[:2]
+        self.path = path
+        self.names = names or {}
+        self.boxes = boxes
+        self.masks = masks
+        self.keypoints = keypoints
+        self.obb = obb
+
+    def __getitem__(self, idx):
+        """Index or slice results.
+
+        Supports integer, slice, and boolean/integer numpy array indexing.
+
+        Args:
+            idx: Integer index, slice, or boolean/integer array.
+
+        Returns:
+            New Results instance containing only the selected detections.
+        """
+        r = Results(
+            orig_img=self.orig_img,
+            path=self.path,
+            names=self.names,
+        )
+        if self.boxes is not None:
+            r.boxes = self.boxes[idx]
+        if self.masks is not None:
+            if isinstance(idx, int):
+                r.masks = Masks(self.masks.data[idx : idx + 1], self.masks.orig_shape)
+            else:
+                r.masks = Masks(self.masks.data[idx], self.masks.orig_shape)
+        if self.keypoints is not None:
+            if isinstance(idx, int):
+                r.keypoints = Keypoints(
+                    self.keypoints.data[idx : idx + 1], self.keypoints.orig_shape
+                )
+            else:
+                r.keypoints = Keypoints(self.keypoints.data[idx], self.keypoints.orig_shape)
+        if self.obb is not None:
+            if isinstance(idx, int):
+                r.obb = OBB(self.obb.data[idx : idx + 1], self.obb.orig_shape)
+            else:
+                r.obb = OBB(self.obb.data[idx], self.obb.orig_shape)
+        return r
+
+    def update(self, boxes=None):
+        """Update results data (used by tracker to inject track IDs).
+
+        Args:
+            boxes: Replacement Boxes instance, or None to leave unchanged.
+        """
+        if boxes is not None:
+            self.boxes = boxes
+
+    @property
+    def conf(self):
+        """Proxy to boxes.conf for tracker compatibility."""
+        return self.boxes.conf if self.boxes is not None else np.empty(0, dtype=np.float32)
+
+    @property
+    def cls(self):
+        """Proxy to boxes.cls for tracker compatibility."""
+        return self.boxes.cls if self.boxes is not None else np.empty(0, dtype=np.float32)
+
+    @property
+    def xywh(self):
+        """Proxy to boxes.xywh for tracker compatibility."""
+        return self.boxes.xywh if self.boxes is not None else np.empty((0, 4), dtype=np.float32)
+
+    def __len__(self) -> int:
+        """Return the number of detections (boxes or OBBs)."""
+        if self.boxes is not None:
+            return len(self.boxes)
+        elif self.obb is not None:
+            return len(self.obb)
+        return 0
+
+    def __repr__(self) -> str:
+        """Return string representation of Results with detection counts."""
+        return (
+            f"Results(path='{self.path}', "
+            f"boxes={len(self.boxes) if self.boxes else 0}, "
+            f"masks={len(self.masks) if self.masks else 0}, "
+            f"keypoints={len(self.keypoints) if self.keypoints else 0}, "
+            f"obb={len(self.obb) if self.obb else 0})"
+        )
+
+    def plot(self, mask_alpha: float = 0.45) -> np.ndarray:
+        """Plot detections and segmentation masks on image.
+
+        Draws semi-transparent colored masks (if available), then
+        axis-aligned boxes and labels for detection outputs.
+
+        Args:
+            mask_alpha: Opacity for mask overlay (0.0 = invisible, 1.0 = opaque).
+
+        Returns:
+            Annotated image as numpy array.
+        """
+        img_array = self.orig_img.copy()
+
+        # Overlay segmentation masks before drawing boxes
+        if self.masks is not None and self.masks.data is not None and len(self.masks) > 0:
+            for i in range(len(self.masks)):
+                mask = self.masks.data[i]  # (H, W) binary mask
+                if mask.shape[:2] != img_array.shape[:2]:
+                    continue
+                cls_id = (
+                    int(self.boxes.cls[i]) if self.boxes is not None and i < len(self.boxes) else i
+                )
+                color = _get_instance_color(cls_id, i)
+                colored = np.zeros_like(img_array)
+                colored[:] = color
+                mask_bool = mask.astype(bool)
+                img_array[mask_bool] = (
+                    img_array[mask_bool] * (1 - mask_alpha) + colored[mask_bool] * mask_alpha
+                ).astype(np.uint8)
+
+        pil_img = Image.fromarray(img_array)
+        draw = ImageDraw.Draw(pil_img)
+
+        # Fallback COCO names to keep labels readable even if metadata is missing.
+        coco80 = [
+            "person",
+            "bicycle",
+            "car",
+            "motorcycle",
+            "airplane",
+            "bus",
+            "train",
+            "truck",
+            "boat",
+            "traffic light",
+            "fire hydrant",
+            "stop sign",
+            "parking meter",
+            "bench",
+            "bird",
+            "cat",
+            "dog",
+            "horse",
+            "sheep",
+            "cow",
+            "elephant",
+            "bear",
+            "zebra",
+            "giraffe",
+            "backpack",
+            "umbrella",
+            "handbag",
+            "tie",
+            "suitcase",
+            "frisbee",
+            "skis",
+            "snowboard",
+            "sports ball",
+            "kite",
+            "baseball bat",
+            "baseball glove",
+            "skateboard",
+            "surfboard",
+            "tennis racket",
+            "bottle",
+            "wine glass",
+            "cup",
+            "fork",
+            "knife",
+            "spoon",
+            "bowl",
+            "banana",
+            "apple",
+            "sandwich",
+            "orange",
+            "broccoli",
+            "carrot",
+            "hot dog",
+            "pizza",
+            "donut",
+            "cake",
+            "chair",
+            "couch",
+            "potted plant",
+            "bed",
+            "dining table",
+            "toilet",
+            "tv",
+            "laptop",
+            "mouse",
+            "remote",
+            "keyboard",
+            "cell phone",
+            "microwave",
+            "oven",
+            "toaster",
+            "sink",
+            "refrigerator",
+            "book",
+            "clock",
+            "vase",
+            "scissors",
+            "teddy bear",
+            "hair drier",
+            "toothbrush",
+        ]
+
+        def class_name_for(cls_id: int) -> str:
+            def is_generic(name: str) -> bool:
+                s = str(name).strip().lower()
+                return s.startswith("class") or s.startswith("cls")
+
+            if isinstance(self.names, dict):
+                # Some models store keys as strings; support both.
+                if cls_id in self.names:
+                    candidate = str(self.names[cls_id])
+                    if not is_generic(candidate):
+                        return candidate
+                if str(cls_id) in self.names:
+                    candidate = str(self.names[str(cls_id)])
+                    if not is_generic(candidate):
+                        return candidate
+            elif isinstance(self.names, list | tuple):
+                if 0 <= cls_id < len(self.names):
+                    candidate = str(self.names[cls_id])
+                    if not is_generic(candidate):
+                        return candidate
+            if 0 <= cls_id < len(coco80):
+                return coco80[cls_id]
+            return f"class{cls_id}"
+
+        if self.boxes is not None and len(self.boxes) > 0:
+            has_tracks = self.boxes.is_track
+            track_ids = self.boxes.id if has_tracks else None
+
+            for i, box in enumerate(self.boxes.xyxy):
+                x1, y1, x2, y2 = [int(v) for v in box]
+                conf = float(self.boxes.conf[i])
+                cls_id = int(self.boxes.cls[i])
+                cls_name = class_name_for(cls_id)
+
+                # Build label and pick color based on tracking state
+                if has_tracks and track_ids is not None:
+                    tid = int(track_ids[i])
+                    label = f"{tid} {cls_name}: {conf:.2f}"
+                    color = _get_track_color(tid)
+                else:
+                    label = f"{cls_name}: {conf:.2f}"
+                    color = (255, 0, 0)
+
+                draw.rectangle([(x1, y1), (x2, y2)], outline=color, width=2)
+                text_bbox = draw.textbbox((x1, y1), label)
+                tw = max(1, text_bbox[2] - text_bbox[0])
+                th = max(1, text_bbox[3] - text_bbox[1])
+                text_x = max(0, x1)
+                # Place label above the box; fallback inside image bounds if needed.
+                text_y = y1 - th - 4
+                if text_y < 0:
+                    text_y = 0
+                draw.rectangle(
+                    [(text_x, text_y), (text_x + tw + 6, text_y + th + 4)],
+                    fill=color,
+                )
+                draw.text((text_x + 3, text_y + 2), label, fill=(255, 255, 255))
+
+        # Draw pose skeleton (keypoint dots + limbs) on top of boxes.
+        if (
+            self.keypoints is not None
+            and self.keypoints.data is not None
+            and len(self.keypoints) > 0
+        ):
+            self._draw_skeleton(draw, img_array.shape[:2])
+
+        return np.array(pil_img)
+
+    def _draw_skeleton(self, draw: "ImageDraw.ImageDraw", shape: tuple[int, int]) -> None:
+        """Draw COCO keypoint dots and skeleton limbs for each detected person.
+
+        Args:
+            draw: PIL ImageDraw handle to render onto.
+            shape: Image shape (H, W), used to scale dot radius and line width.
+        """
+        kpts = self.keypoints.data  # (N, K, 2 or 3)
+        if kpts is None or kpts.ndim != 3:
+            return
+
+        num_kpts = kpts.shape[1]
+        has_vis = kpts.shape[2] == 3
+        conf_thresh = 0.5
+        radius = max(2, int(round(min(shape) / 200)))
+        line_w = max(1, int(round(min(shape) / 300)))
+
+        for person in kpts:
+            # Limbs first so that dots render on top of the connecting lines.
+            for li, (a, b) in enumerate(_POSE_SKELETON):
+                if a > num_kpts or b > num_kpts:
+                    continue
+                pa = person[a - 1]
+                pb = person[b - 1]
+                if has_vis and (pa[2] < conf_thresh or pb[2] < conf_thresh):
+                    continue
+                xa, ya = float(pa[0]), float(pa[1])
+                xb, yb = float(pb[0]), float(pb[1])
+                if (xa == 0 and ya == 0) or (xb == 0 and yb == 0):
+                    continue
+                color = _POSE_PALETTE[_POSE_LIMB_COLOR[li] % len(_POSE_PALETTE)]
+                draw.line([(xa, ya), (xb, yb)], fill=color, width=line_w + 1)
+
+            for ki in range(num_kpts):
+                p = person[ki]
+                if has_vis and p[2] < conf_thresh:
+                    continue
+                x, y = float(p[0]), float(p[1])
+                if x == 0 and y == 0:
+                    continue
+                color = _POSE_PALETTE[
+                    _POSE_KPT_COLOR[ki % len(_POSE_KPT_COLOR)] % len(_POSE_PALETTE)
+                ]
+                draw.ellipse(
+                    [(x - radius, y - radius), (x + radius, y + radius)],
+                    fill=color,
+                    outline=color,
+                )
+
+    def save(self, filename: str | None = None) -> str:
+        """Save annotated image to file and return output path.
+
+        Args:
+            filename: Output file path. If not provided, writes to
+                `results/<input_stem>_result.jpg` (or `results/result.jpg`).
+
+        Returns:
+            Saved image path as a string.
+        """
+        img = self.plot()
+        if filename is None:
+            stem = Path(self.path).stem if self.path else "result"
+            out_path = Path("results") / f"{stem}_result.jpg"
+        else:
+            out_path = Path(filename)
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(img).save(out_path)
+        return str(out_path)
+
+    def to_json(self) -> dict[str, Any]:
+        """Convert results to JSON-serializable dict.
+
+        Returns:
+            Dictionary with path, shape, boxes, masks, keypoints, and OBB data.
+        """
+        result = {
+            "path": self.path,
+            "orig_shape": self.orig_shape,
+        }
+
+        if self.boxes is not None and len(self.boxes) > 0:
+            result["boxes"] = {
+                "xyxy": self.boxes.xyxy.tolist(),
+                "conf": self.boxes.conf.tolist(),
+                "cls": self.boxes.cls.tolist(),
+            }
+
+        if self.masks is not None and len(self.masks) > 0:
+            result["masks_shape"] = self.masks.data.shape
+
+        if self.keypoints is not None and len(self.keypoints) > 0:
+            result["keypoints"] = {
+                "xy": self.keypoints.xy.tolist(),
+                "conf": self.keypoints.conf.tolist(),
+            }
+
+        if self.obb is not None and len(self.obb) > 0:
+            result["obb"] = {
+                "xywhr": self.obb.xywhr.tolist(),
+                "conf": self.obb.conf.tolist(),
+                "cls": self.obb.cls.tolist(),
+            }
+
+        return result
+
+    def verbose(self) -> str:
+        """Return verbose string with image info and top detection details.
+
+        Returns:
+            Multi-line string with image path, dimensions, and up to 5 top detections.
+        """
+        s = f"Image: {self.path or 'N/A'} ({self.orig_shape[1]}x{self.orig_shape[0]})\n"
+
+        if self.boxes is not None and len(self.boxes) > 0:
+            s += f"  Detections: {len(self.boxes)}\n"
+            for i in range(min(len(self.boxes), 5)):
+                cls_id = int(self.boxes.cls[i])
+                cls_name = self.names.get(cls_id, f"class{cls_id}")
+                conf = self.boxes.conf[i]
+                s += f"    - {cls_name}: {conf:.2f}\n"
+            if len(self.boxes) > 5:
+                s += f"    ... and {len(self.boxes) - 5} more\n"
+
+        return s
