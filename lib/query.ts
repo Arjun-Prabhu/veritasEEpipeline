@@ -40,9 +40,13 @@ export function parsePromptLocally(prompt: string): ParsedQuery {
   }
 
   const focus = detectFocus(prompt);
-  const coords = known
-    ? { lat: known.lat, lon: known.lon }
-    : fallbackCoordinates(location);
+  const explicit = explicitCoordinates(prompt);
+  const coords = explicit
+    ? explicit
+    : known
+      ? { lat: known.lat, lon: known.lon }
+      : fallbackCoordinates(location);
+  if (explicit) location = `${explicit.lat.toFixed(2)}, ${explicit.lon.toFixed(2)}`;
 
   return {
     location,
@@ -63,13 +67,17 @@ export function sanitizeParsed(raw: Partial<ParsedQuery>, prompt: string): Parse
   let startYear = Number.isFinite(start) ? clampYear(Math.round(start)) : local.start_year;
   let endYear = Number.isFinite(end) ? clampYear(Math.round(end)) : local.end_year;
   if (endYear < startYear) [startYear, endYear] = [endYear, startYear];
-  const location = (raw.location || local.location).trim() || local.location;
-  const coords =
-    Number.isFinite(lat) &&
-    Number.isFinite(lon) &&
-    Math.abs(lat) <= 90 &&
-    Math.abs(lon) <= 180 &&
-    !(lat === 0 && lon === 0)
+  const explicit = explicitCoordinates(prompt);
+  const named = (raw.location || "").trim();
+  const namedPlace = named && !looksLikeCoordinates(named) ? named : "";
+  const location = namedPlace || local.location;
+  const coords = explicit
+    ? explicit
+    : Number.isFinite(lat) &&
+        Number.isFinite(lon) &&
+        Math.abs(lat) <= 90 &&
+        Math.abs(lon) <= 180 &&
+        !(lat === 0 && lon === 0)
       ? { lat, lon }
       : fallbackCoordinates(location);
 
@@ -81,6 +89,20 @@ export function sanitizeParsed(raw: Partial<ParsedQuery>, prompt: string): Parse
     latitude: coords.lat,
     longitude: coords.lon,
   };
+}
+
+function looksLikeCoordinates(value: string) {
+  return /^-?\d+(?:\.\d+)?\s*,\s*-?\d+/.test(value.trim());
+}
+
+function explicitCoordinates(prompt: string) {
+  const match = prompt.match(/latitude\s+(-?\d+(?:\.\d+)?)\s*,\s*longitude\s+(-?\d+(?:\.\d+)?)/i);
+  if (!match) return null;
+  const lat = Number(match[1]);
+  const lon = Number(match[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { lat, lon };
 }
 
 function detectFocus(prompt: string) {

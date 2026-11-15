@@ -25,13 +25,16 @@ export default function Analyzer() {
   const [imagery, setImagery] = useState<MLModelResponse | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [saved, setSaved] = useState(false);
+  const [quote, setQuote] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    setQuote(sessionStorage.getItem("gaia-quote") === "1");
     const params = new URLSearchParams(window.location.search);
     const caseId = params.get("case");
     const query = params.get("q");
+    const draft = params.get("draft") === "1";
     if (caseId) {
       const study = caseById(caseId);
       if (study) {
@@ -40,7 +43,7 @@ export default function Analyzer() {
       }
     } else if (query) {
       setPrompt(query);
-      void run(query);
+      if (!draft) void run(query);
     }
     // The opening query should run once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -114,7 +117,7 @@ export default function Analyzer() {
   const busy = phase === "parsing" || phase === "imaging" || phase === "reading";
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-[1440px] flex-col px-4 pb-10 pt-24 lg:h-screen lg:overflow-hidden lg:px-6">
+    <main className="mx-auto flex min-h-screen max-w-[1440px] flex-col px-4 pb-16 pt-24 lg:px-6">
       <form
         className="shrink-0"
         onSubmit={(event) => {
@@ -125,6 +128,11 @@ export default function Analyzer() {
         <label htmlFor="land-query" className="text-[11px] uppercase tracking-[0.22em] text-lime">
           Land-change analyzer
         </label>
+        {quote && (
+          <p className="mt-3 max-w-xl text-sm text-[#7dccff]">
+            We choose to do this not because it is easy but because we thought it would be.
+          </p>
+        )}
         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
           <input
             id="land-query"

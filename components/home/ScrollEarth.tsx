@@ -2,17 +2,9 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 const EarthCanvas = dynamic(() => import("./EarthCanvas"), { ssr: false });
-
-const PIXELS = [
-  { year: 2021, t: 0.08 },
-  { year: 2022, t: 0.3 },
-  { year: 2023, t: 0.52 },
-  { year: 2024, t: 0.74 },
-  { year: 2025, t: 0.96 },
-];
 
 const CHARLOTTE_QUERY = "How has the land in Charlotte changed from 2021 to 2025?";
 
@@ -29,19 +21,56 @@ function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
 }
 
+function shaped(raw: number) {
+  const pauseIn = 0.2;
+  const pauseOut = 0.34;
+  const held = 0.36;
+  if (raw <= pauseIn) return (raw / pauseIn) * held;
+  if (raw <= pauseOut) return held;
+  return held + ((raw - pauseOut) / (1 - pauseOut)) * (1 - held);
+}
+
 export default function ScrollEarth() {
   const progressRef = useRef(0);
   const wrapRef = useRef<HTMLDivElement>(null);
   const markRef = useRef<HTMLDivElement>(null);
   const veilRef = useRef<HTMLDivElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const stripRef = useRef<HTMLDivElement>(null);
-  const clipRef = useRef<HTMLDivElement>(null);
-  const firstTileRef = useRef<HTMLElement>(null);
-  const probeRef = useRef<HTMLDivElement>(null);
-  const noteRef = useRef<HTMLParagraphElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const descRef = useRef<HTMLDivElement>(null);
+  const copyRef = useRef<HTMLParagraphElement>(null);
   const cueRef = useRef<HTMLParagraphElement>(null);
+  const hintRef = useRef<HTMLParagraphElement>(null);
+  const seek = useRef({ time: 0, busy: false });
+
+  const scrub = (video: HTMLVideoElement) => {
+    if (video.seeking || seek.current.busy) return;
+    const next = seek.current.time;
+    if (!Number.isFinite(next) || Math.abs(video.currentTime - next) < 0.03) {
+      if (!video.paused) video.pause();
+      return;
+    }
+    seek.current.busy = true;
+    let settled = false;
+    const release = () => {
+      if (settled) return;
+      settled = true;
+      seek.current.busy = false;
+      if (!video.seeking && Math.abs(video.currentTime - seek.current.time) > 0.05) scrub(video);
+    };
+    video.addEventListener("seeked", release, { once: true });
+    window.setTimeout(release, 450);
+    try {
+      video.currentTime = next;
+    } catch {
+      seek.current.busy = false;
+    }
+    if (!video.paused) video.pause();
+  };
+
+  useLayoutEffect(() => {
+    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+    window.scrollTo(0, 0);
+  }, []);
 
   useEffect(() => {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -60,58 +89,58 @@ export default function ScrollEarth() {
         mark.style.translate = "-50% -50%";
         mark.style.top = `${lerp(window.innerHeight * 0.24, window.innerHeight * 0.12, lift)}px`;
         mark.style.fontSize = `${size}px`;
+        mark.style.opacity = String(1 - smoothstep(0.48, 0.56, progress));
       }
 
-      const emerge = smoothstep(0.54, 0.68, progress);
-      const intro = smoothstep(0.72, 0.86, progress);
-      const travel = smoothstep(0.86, 0.96, progress);
-      const reveal = smoothstep(0.92, 0.99, progress);
+      const film = smoothstep(0.64, 0.86, progress);
+      const filmIn = smoothstep(0.58, 0.66, progress);
+      const filmOut = 1 - smoothstep(0.86, 0.94, progress);
+      const briefing = smoothstep(0.92, 0.99, progress);
 
       if (veilRef.current) {
-        veilRef.current.style.opacity = String(smoothstep(0.72, 0.86, progress) * 0.92);
+        const globeFade = smoothstep(0.58, 0.76, progress);
+        veilRef.current.style.opacity = String(globeFade * 0.94);
       }
-      if (stageRef.current) {
-        stageRef.current.style.top = `${window.innerHeight / 2 - 140}px`;
-        stageRef.current.style.opacity = emerge < 0.01 ? "0" : "1";
-        stageRef.current.style.visibility = emerge < 0.01 ? "hidden" : "visible";
-        stageRef.current.style.transform = "none";
+      const video = videoRef.current;
+      if (video) {
+        const visible = filmIn * filmOut;
+        video.style.opacity = String(visible);
+        const duration = video.duration;
+        if (Number.isFinite(duration) && duration > 0) {
+          seek.current.time = Math.min(Math.max(duration - 0.05, 0), film * duration);
+          scrub(video);
+        } else if (video.networkState === HTMLMediaElement.NETWORK_EMPTY) {
+          video.load();
+        }
       }
-      if (clipRef.current) clipRef.current.style.overflow = "hidden";
-      if (stripRef.current) {
-        const desc = descRef.current;
-        const descBox = desc?.getBoundingClientRect();
-        const beside =
-          desc !== null &&
-          descBox !== undefined &&
-          descBox.width > 40 &&
-          getComputedStyle(desc).position === "absolute";
-        const stopAt = beside ? Math.max(280, descBox.left - 36) : window.innerWidth;
-        const shift = Math.max(0, stripRef.current.scrollWidth - stopAt);
-        const centeredX = window.innerWidth / 2 - 140;
-        const x = lerp(lerp(centeredX, 0, intro), -shift, travel);
-        stripRef.current.style.transform = `translateX(${x}px)`;
-
-        const tiles = stripRef.current.querySelectorAll("article");
-        tiles.forEach((tile, index) => {
-          if (index === 0) return;
-          tile.style.opacity = String(intro);
-        });
+      if (copyRef.current) {
+        copyRef.current.style.opacity = (filmIn * filmOut).toFixed(3);
       }
-      const first = firstTileRef.current;
-      if (first) {
-        first.style.transformOrigin = "center center";
-        first.style.zIndex = "2";
-        first.style.transform = emerge >= 0.995 ? "none" : `scale(${lerp(0.14, 1, emerge)})`;
-      }
-      if (noteRef.current) noteRef.current.style.opacity = String(intro * (1 - reveal));
-      if (probeRef.current) probeRef.current.style.opacity = String(intro);
       if (descRef.current) {
-        descRef.current.style.opacity = reveal.toFixed(3);
-        descRef.current.style.pointerEvents = reveal > 0.45 ? "auto" : "none";
+        descRef.current.style.opacity = briefing.toFixed(3);
+        descRef.current.style.transform = `translate(-50%, ${lerp(36, 0, briefing)}px)`;
+        descRef.current.style.pointerEvents = briefing > 0.55 ? "auto" : "none";
       }
       if (cueRef.current) cueRef.current.style.opacity = String(1 - smoothstep(0.02, 0.1, progress));
+      if (hintRef.current) {
+        const show = smoothstep(0.31, 0.36, progress) * (1 - smoothstep(0.5, 0.6, progress));
+        hintRef.current.style.opacity = String(show);
+      }
     };
 
+    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+    window.scrollTo(0, 0);
+    const video = videoRef.current;
+    if (video) {
+      seek.current.time = 0;
+      seek.current.busy = false;
+      video.pause();
+      try {
+        video.currentTime = 0;
+      } catch {
+        /* Metadata may still be loading. */
+      }
+    }
     if (reduce && wrapRef.current) wrapRef.current.style.height = "100vh";
     apply(reduce ? 1 : 0);
     progressRef.current = reduce ? 1 : 0;
@@ -128,13 +157,14 @@ export default function ScrollEarth() {
       const { ScrollTrigger } = scrollModule;
       gsap.registerPlugin(ScrollTrigger);
 
-      const lenis = new Lenis({ duration: 1.15, smoothWheel: true, touchMultiplier: 1.05 });
+      const lenis = new Lenis({ duration: 1.7, smoothWheel: true, wheelMultiplier: 0.65, touchMultiplier: 0.9 });
       lenis.on("scroll", ScrollTrigger.update);
       const tick = (time: number) => {
         lenis.raf(time * 1000);
       };
       gsap.ticker.add(tick);
       gsap.ticker.lagSmoothing(0);
+      lenis.scrollTo(0, { immediate: true });
 
       const trigger = ScrollTrigger.create({
         id: "gaia-home",
@@ -142,8 +172,9 @@ export default function ScrollEarth() {
         start: "top top",
         end: "bottom bottom",
         onUpdate: (self) => {
-          progressRef.current = self.progress;
-          apply(self.progress);
+          const progress = shaped(self.progress);
+          progressRef.current = progress;
+          apply(progress);
         },
       });
       ScrollTrigger.refresh();
@@ -164,7 +195,7 @@ export default function ScrollEarth() {
   }, []);
 
   return (
-    <div ref={wrapRef} className="relative h-[640vh] bg-[#05060f]">
+    <div ref={wrapRef} className="relative h-[860vh] bg-[#05060f]">
       <div className="sticky top-0 h-screen overflow-hidden bg-[#05060f]">
         <EarthCanvas progressRef={progressRef} />
         <div ref={veilRef} className="pointer-events-none absolute inset-0 z-[5] bg-[#05060f] opacity-0" />
@@ -177,53 +208,40 @@ export default function ScrollEarth() {
           g<span className="text-[#7dccff]">AI</span>a
         </div>
 
-        <div
-          ref={stageRef}
-          className="absolute inset-x-0 top-[22vh] z-20 opacity-0"
+        <video
+          ref={videoRef}
+          src="/video/charlotte.mp4"
+          muted
+          playsInline
+          preload="auto"
+          onLoadedMetadata={(event) => scrub(event.currentTarget)}
+          onPlay={(event) => event.currentTarget.pause()}
+          className="pointer-events-none absolute left-1/2 top-1/2 z-10 aspect-square w-[min(52vw,68vh)] -translate-x-1/2 -translate-y-1/2 rounded-2xl object-cover opacity-0"
+        />
+        <p
+          ref={copyRef}
+          className="pointer-events-none absolute top-1/2 z-20 w-[min(240px,24vw)] -translate-y-1/2 text-left text-[14px] leading-relaxed text-white/90 opacity-0"
+          style={{ left: "calc(50% + min(26vw, 34vh) + 28px)" }}
         >
-          <div ref={clipRef}>
-            <div ref={stripRef} className="flex w-max gap-5 md:gap-8">
-              {PIXELS.map((pixel, index) => (
-                <article
-                  key={pixel.year}
-                  ref={index === 0 ? firstTileRef : undefined}
-                  className="w-[280px] shrink-0"
-                >
-                  <div className="relative aspect-square overflow-hidden bg-[#0c1440]">
-                    <img
-                      src={`/api/tile?scene=urban&t=${pixel.t}&kind=photo`}
-                      alt=""
-                      className="h-full w-full object-cover opacity-80"
-                    />
-                    <div className="absolute inset-0 bg-[#071033]/55" />
-                    <p className="absolute inset-0 grid place-items-center px-5 text-center text-[13px] leading-snug text-white">
-                      Satellite Pixel of Charlotte {pixel.year}
-                    </p>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-          <p ref={noteRef} className="px-6 pt-5 text-center text-[12px] text-white/70 md:px-16 md:text-left">
-            Five tiles of the same ground. Scroll moves through the years.
-          </p>
-          <div ref={probeRef} className="opacity-0">
-            <KeyProbe />
-          </div>
-          <div
-            ref={descRef}
-            className="mx-auto mt-8 max-w-md px-6 text-[13px] leading-relaxed text-white/90 opacity-0 md:absolute md:right-10 md:top-0 md:mx-0 md:mt-0 md:w-[260px] md:max-w-[260px] md:px-0"
-          >
-            <p>
-              A prompt names a place and a span of years. gAIa parses it, asks the land model for one
-              satellite tile per year, and writes what changed, why, and what to do if the trend holds.
-            </p>
-            <p className="mt-4 text-white/60">Charlotte, 2021–2025, is the sample on this page.</p>
-            <Link href={`/analyze?q=${encodeURIComponent(CHARLOTTE_QUERY)}`} className="mt-5 inline-block text-white underline">
-              Read Charlotte
-            </Link>
-          </div>
+          A prompt names a place and a span of years. gAIa parses it, asks the land model for one
+          satellite tile per year, and writes what changed, why, and what to do if the trend holds.
+        </p>
+        <div
+          ref={descRef}
+          className="absolute bottom-[10vh] left-1/2 z-20 w-[min(560px,88vw)] text-center text-[14px] leading-relaxed text-white/90 opacity-0"
+        >
+          <p className="text-white/60">Charlotte, 2021–2025, is the sample on this page.</p>
+          <Link href={`/analyze?q=${encodeURIComponent(CHARLOTTE_QUERY)}`} className="mt-5 inline-block text-white underline">
+            Read Charlotte
+          </Link>
         </div>
+
+        <p
+          ref={hintRef}
+          className="pointer-events-none absolute right-[6vw] top-1/2 z-20 max-w-[200px] -translate-y-1/2 text-[13px] leading-relaxed text-white/85 opacity-0"
+        >
+          Click anywhere on the globe to analyze
+        </p>
 
         <p
           ref={cueRef}
@@ -236,63 +254,3 @@ export default function ScrollEarth() {
   );
 }
 
-function KeyProbe() {
-  const [prompt, setPrompt] = useState("Is the Gemini key working?");
-  const [pending, setPending] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
-
-  async function onSubmit(event: FormEvent) {
-    event.preventDefault();
-    const text = prompt.trim();
-    if (!text || pending) return;
-    setPending(true);
-    setResult(null);
-    try {
-      const response = await fetch("/api/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: text }),
-      });
-      const data = (await response.json().catch(() => null)) as { reply?: string; error?: string } | null;
-      if (response.ok && data?.reply) {
-        setResult({ ok: true, text: data.reply });
-      } else {
-        setResult({ ok: false, text: data?.error || "The key did not work." });
-      }
-    } catch {
-      setResult({ ok: false, text: "The request never reached the server." });
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <form onSubmit={onSubmit} className="mx-auto mt-4 w-full max-w-xl px-6">
-      <label htmlFor="key-probe" className="text-[11px] tracking-[0.18em] text-[#7dccff]">
-        Test the API key
-      </label>
-      <div className="mt-2 flex gap-2">
-        <input
-          id="key-probe"
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          className="min-w-0 flex-1 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-[13px] text-white outline-none placeholder:text-white/40 focus:border-[#7dccff]"
-          placeholder="Ask something"
-        />
-        <button
-          type="submit"
-          disabled={pending}
-          className="shrink-0 rounded-full bg-[#7dccff] px-4 py-2 text-[13px] text-[#071018] disabled:opacity-60"
-        >
-          {pending ? "Sending" : "Send"}
-        </button>
-      </div>
-      {result && (
-        <p className={`mt-3 max-h-24 overflow-auto text-[12px] leading-relaxed ${result.ok ? "text-white/85" : "text-[#f0b4a0]"}`}>
-          {result.ok ? "Key works. " : "Key did not work. "}
-          {result.text}
-        </p>
-      )}
-    </form>
-  );
-}

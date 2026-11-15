@@ -32,7 +32,7 @@ export default function ExploreGallery() {
             <img
               src={`/api/tile?scene=${item.scene}&t=${item.t}&kind=photo`}
               alt=""
-              className={`h-56 w-full object-cover transition duration-700 group-hover:scale-[1.03] ${index === 0 ? "md:h-full" : ""}`}
+              className="h-56 w-full object-cover transition duration-700 group-hover:scale-[1.03] md:h-64"
             />
             <div className="flex flex-col justify-end p-5">
               <p className="text-[11px] uppercase tracking-[0.18em] text-foam">

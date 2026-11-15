@@ -16,7 +16,7 @@ export async function parseWithGemini(prompt: string): Promise<Partial<ParsedQue
   if (!ai) return null;
   const response = await ai.models.generateContent({
     model: MODEL,
-    contents: `Extract a geospatial land-change query from the user. The present year is 2026. If they give no timeframe, set start_year to 2021 and end_year to 2026. If they give one year with "since" or "from", use it as start_year and 2026 as end_year. location is a place name, not the whole sentence. focus_area is a short phrase such as "deforestation", "urban development", "coastal change", "agriculture", "wildfire recovery", or "general land use". latitude and longitude are the approximate WGS84 center of that place.
+    contents: `Extract a geospatial land-change query from the user. The present year is 2026. If they give no timeframe, set start_year to 2021 and end_year to 2026. If they give one year with "since" or "from", use it as start_year and 2026 as end_year. location is a place name, not the whole sentence. If the prompt includes latitude and longitude, those numbers are a click on the globe: set latitude and longitude to those exact values, and set location to the city or town at that point (a neighborhood only if it is inside a named city). Never put the raw numbers in location. focus_area is a short phrase such as "deforestation", "urban development", "coastal change", "agriculture", "wildfire recovery", or "general land use".
 
 User prompt:
 ${prompt}`,
@@ -56,6 +56,8 @@ The user asked: "${prompt}"
 Place: ${imagery.location}
 Focus: ${imagery.focus_area}
 Coordinates: ${imagery.latitude}, ${imagery.longitude}
+
+Name the city or town at these coordinates and use that name in the headline and the prose. Do not refer to the place by raw latitude and longitude.
 
 Land-cover percentages for every returned year (these numbers are authoritative):
 ${imagery.frames
@@ -112,9 +114,20 @@ Images follow for selected years. They may be simulated previews or real model o
   };
 }
 
+function readGeminiKey() {
+  let key = process.env.GEMINI_API_KEY?.trim() ?? "";
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1).trim();
+  }
+  return key;
+}
+
 export async function askGemini(prompt: string): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set.");
+  const apiKey = readGeminiKey();
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this server.");
   const ai = new GoogleGenAI({ apiKey });
   const response = await ai.models.generateContent({
     model: MODEL,
@@ -127,18 +140,35 @@ export async function askGemini(prompt: string): Promise<string> {
 }
 
 export function geminiErrorMessage(error: unknown) {
-  const raw = error instanceof Error ? error.message : "The key did not work.";
+  const raw = readError(error);
   try {
-    const parsed = JSON.parse(raw) as { error?: { message?: string } };
+    const parsed = JSON.parse(raw) as { error?: { message?: string }; message?: string };
     if (parsed.error?.message) return parsed.error.message;
+    if (parsed.message) return parsed.message;
   } catch {
     /* The SDK sometimes returns plain text. */
   }
   return raw;
 }
 
+function readError(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object") {
+    const record = error as { message?: unknown; error?: { message?: unknown } };
+    if (typeof record.error?.message === "string") return record.error.message;
+    if (typeof record.message === "string") return record.message;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "The key did not work.";
+    }
+  }
+  return "The key did not work.";
+}
+
 function client() {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  const apiKey = readGeminiKey();
   if (!apiKey) return null;
   return new GoogleGenAI({ apiKey });
 }

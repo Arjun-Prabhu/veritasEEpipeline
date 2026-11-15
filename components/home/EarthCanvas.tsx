@@ -1,9 +1,12 @@
 "use client";
 
-import { Stars, useTexture } from "@react-three/drei";
-import { Canvas, useFrame } from "@react-three/fiber";
-import { Suspense, useEffect, useMemo, useRef } from "react";
+import { Html, useTexture } from "@react-three/drei";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import type { ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
+import { startPageTransition } from "@/lib/transition";
 
 function smoothstep(edge0: number, edge1: number, x: number) {
   const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
@@ -12,6 +15,15 @@ function smoothstep(edge0: number, edge1: number, x: number) {
 
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
+}
+
+function vecToLatLon(vector: THREE.Vector3) {
+  const normal = vector.clone().normalize();
+  const lat = (Math.asin(THREE.MathUtils.clamp(normal.y, -1, 1)) * 180) / Math.PI;
+  let lon = (Math.atan2(normal.z, -normal.x) * 180) / Math.PI - 180;
+  if (lon < -180) lon += 360;
+  if (lon > 180) lon -= 360;
+  return { lat, lon };
 }
 
 function latLonToVec(lat: number, lon: number, radius: number) {
@@ -24,21 +36,83 @@ function latLonToVec(lat: number, lon: number, radius: number) {
   );
 }
 
-function Earth({ progressRef }: { progressRef: React.RefObject<number> }) {
+function Earth({
+  progressRef,
+  hover,
+}: {
+  progressRef: React.RefObject<number>;
+  hover: React.RefObject<{ active: boolean; point: THREE.Vector3 }>;
+}) {
+  const router = useRouter();
   const earth = useRef<THREE.Group>(null);
   const clouds = useRef<THREE.Mesh>(null);
-  const [day, normal, spec, cloudMap] = useTexture([
-    "/textures/earth_day.jpg",
-    "/textures/earth_normal.jpg",
-    "/textures/earth_spec.jpg",
-    "/textures/earth_clouds.png",
-  ]);
+  const spin = useRef(0);
+  const spinQ = useMemo(() => new THREE.Quaternion(), []);
+  const polar = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  const drag = useRef({
+    active: false,
+    lastX: 0,
+    lastY: 0,
+    moved: 0,
+    slowUntil: 0,
+    pausedUntil: 0,
+    didPause: false,
+    zooming: false,
+    latchYaw: 0,
+    latchPitch: 0,
+    forwardYaw: 0,
+    forwardPitch: 0,
+    yaw: 0,
+    pitch: 0,
+    yawTarget: 0,
+    pitchTarget: 0,
+  });
+  const pitchQ = useMemo(() => new THREE.Quaternion(), []);
+  const xAxis = useMemo(() => new THREE.Vector3(1, 0, 0), []);
+  const align = useMemo(() => {
+    const globe = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.18, 0.42, 0));
+    const charlotte = latLonToVec(35.2271, -80.8431, 1).normalize();
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    const pitchAxis = new THREE.Vector3(1, 0, 0);
+    const target = new THREE.Vector3(0, 0, 1);
+    const ry = new THREE.Quaternion();
+    const rx = new THREE.Quaternion();
+    const q = new THREE.Quaternion();
+    const p = new THREE.Vector3();
+    let spin = 0;
+    let pitch = 0;
+    let bestDot = -2;
+    for (let i = 0; i < 720; i += 1) {
+      const yaw = (i / 720) * Math.PI * 2;
+      ry.setFromAxisAngle(yAxis, yaw);
+      for (let j = 0; j < 241; j += 1) {
+        const tilt = -1.4 + (j / 240) * 2.8;
+        rx.setFromAxisAngle(pitchAxis, tilt);
+        const dot = p.copy(charlotte).applyQuaternion(q.copy(globe).multiply(ry).multiply(rx)).dot(target);
+        if (dot > bestDot) {
+          bestDot = dot;
+          spin = yaw;
+          pitch = tilt;
+        }
+      }
+    }
+    return { spin, pitch };
+  }, []);
+  const [day, cloudMap] = useTexture(["/textures/earth_day.jpg", "/textures/earth_clouds.png"]);
+  const gl = useThree((state) => state.gl);
 
-  useEffect(() => {
+  if (!day.userData.configured) {
     day.colorSpace = THREE.SRGBColorSpace;
+    day.generateMipmaps = false;
+    day.minFilter = THREE.LinearFilter;
+    day.magFilter = THREE.LinearFilter;
+    day.anisotropy = 1;
+    day.needsUpdate = true;
+    day.userData.configured = true;
     cloudMap.colorSpace = THREE.SRGBColorSpace;
-    day.anisotropy = 8;
-  }, [day, cloudMap]);
+    cloudMap.anisotropy = gl.capabilities.getMaxAnisotropy();
+    cloudMap.needsUpdate = true;
+  }
 
   const poses = useMemo(() => {
     const charlotte = latLonToVec(35.2271, -80.8431, 1).normalize();
@@ -53,51 +127,156 @@ function Earth({ progressRef }: { progressRef: React.RefObject<number> }) {
   useFrame((state, delta) => {
     const progress = progressRef.current ?? 0;
     const zoomOut = smoothstep(0.06, 0.32, progress);
-    const zoomIn = smoothstep(0.34, 0.52, progress);
+    const zoomIn = progress >= 0.5 ? 1 : smoothstep(0.4, 0.5, progress);
     const globeEase = zoomOut * zoomOut * (3 - 2 * zoomOut);
     const cityEase = zoomIn * zoomIn * (3 - 2 * zoomIn);
 
+    const now = performance.now();
+    const hand = drag.current;
+    if (progress >= 0.3 && !hand.didPause) {
+      hand.didPause = true;
+      hand.pausedUntil = now + 900;
+    }
+    const tau = Math.PI * 2;
+    const follow = 1 - Math.exp(-delta * 14);
+    if (cityEase > 0.02) {
+      if (!hand.zooming) {
+        hand.zooming = true;
+        hand.active = false;
+        hand.latchYaw = hand.yaw;
+        hand.latchPitch = hand.pitch;
+        const phase = ((hand.latchYaw % tau) + tau) % tau;
+        const yaw = ((align.spin % tau) + tau) % tau;
+        let forward = (yaw - phase + tau) % tau;
+        if (forward < 0.2) forward += tau;
+        hand.forwardYaw = forward;
+        hand.forwardPitch = align.pitch - hand.latchPitch;
+      }
+      hand.yaw = hand.latchYaw + hand.forwardYaw * cityEase;
+      hand.pitch = hand.latchPitch + hand.forwardPitch * cityEase;
+      hand.yawTarget = hand.yaw;
+      hand.pitchTarget = hand.pitch;
+    } else {
+      hand.zooming = false;
+      if (!hand.active && now >= hand.pausedUntil) {
+        const rate = now < hand.slowUntil ? 0.025 : 0.07;
+        hand.yawTarget += delta * rate;
+      }
+      hand.yaw += (hand.yawTarget - hand.yaw) * follow;
+      hand.pitch += (hand.pitchTarget - hand.pitch) * follow;
+    }
+    spin.current = hand.yaw;
+    spinQ.setFromAxisAngle(polar, hand.yaw);
+    pitchQ.setFromAxisAngle(xAxis, hand.pitch);
     poses.mixed.copy(poses.horizon).slerp(poses.globe, globeEase);
-    poses.mixed.slerp(poses.city, cityEase);
+    poses.mixed.multiply(spinQ).multiply(pitchQ);
     if (earth.current) earth.current.quaternion.copy(poses.mixed);
     if (clouds.current) {
       clouds.current.rotation.y = state.clock.elapsedTime * 0.012 * (1 - cityEase);
+      const cloudMat = clouds.current.material as THREE.MeshPhongMaterial;
+      cloudMat.opacity = 0.38 * (1 - cityEase);
     }
 
-    const z = lerp(lerp(3.65, 5.35, globeEase), 1.22, cityEase);
+    const z = lerp(lerp(3.65, 5.35, globeEase), 1.1, cityEase);
     const y = lerp(lerp(0.22, 0, globeEase), 0, cityEase);
     const lookY = lerp(lerp(0.92, 0.2, globeEase), 0, cityEase);
-    state.camera.position.z = THREE.MathUtils.damp(state.camera.position.z, z, 3.4, delta);
-    state.camera.position.y = THREE.MathUtils.damp(state.camera.position.y, y, 3.4, delta);
-    state.camera.position.x = THREE.MathUtils.damp(state.camera.position.x, 0, 3.4, delta);
+    const settle = cityEase > 0.2 ? 8 : 3.4;
+    state.camera.position.z = THREE.MathUtils.damp(state.camera.position.z, z, settle, delta);
+    state.camera.position.y = THREE.MathUtils.damp(state.camera.position.y, y, settle, delta);
+    state.camera.position.x = THREE.MathUtils.damp(state.camera.position.x, 0, settle, delta);
     state.camera.lookAt(0, lookY, 0);
   });
 
+  useEffect(() => {
+    const endDrag = () => {
+      const hand = drag.current;
+      if (!hand.active) return;
+      const moved = hand.moved;
+      hand.active = false;
+      if (moved > 12) hand.slowUntil = performance.now() + 2000;
+    };
+    const moveDrag = (event: PointerEvent) => {
+      const hand = drag.current;
+      if (!hand.active) return;
+      const dx = event.clientX - hand.lastX;
+      const dy = event.clientY - hand.lastY;
+      hand.lastX = event.clientX;
+      hand.lastY = event.clientY;
+      hand.moved += Math.abs(dx);
+      hand.yawTarget += dx * 0.005;
+    };
+    const finishDrag = () => {
+      window.setTimeout(endDrag, 0);
+    };
+    window.addEventListener("pointermove", moveDrag);
+    window.addEventListener("pointerup", finishDrag);
+    window.addEventListener("pointercancel", finishDrag);
+    return () => {
+      window.removeEventListener("pointermove", moveDrag);
+      window.removeEventListener("pointerup", finishDrag);
+      window.removeEventListener("pointercancel", finishDrag);
+    };
+  }, [gl]);
+
   return (
     <group ref={earth}>
-      <mesh>
-        <sphereGeometry args={[1, 96, 96]} />
-        <meshPhongMaterial
-          map={day}
-          normalMap={normal}
-          specularMap={spec}
-          specular="#b9d7ff"
-          shininess={14}
-        />
+      <mesh
+        onPointerMove={(event: ThreeEvent<PointerEvent>) => {
+          if ((progressRef.current ?? 0) < 0.3 || !hover.current) return;
+          hover.current.active = true;
+          hover.current.point.copy(event.point);
+          gl.domElement.style.cursor = "none";
+        }}
+        onPointerOut={() => {
+          if (hover.current) hover.current.active = false;
+          if (drag.current.active) return;
+          gl.domElement.style.cursor = "";
+        }}
+        onPointerDown={(event: ThreeEvent<PointerEvent>) => {
+          if ((progressRef.current ?? 0) < 0.3 || drag.current.zooming) return;
+          drag.current.active = true;
+          drag.current.lastX = event.clientX;
+          drag.current.lastY = event.clientY;
+          drag.current.moved = 0;
+          sessionStorage.setItem("gaia-dragged", "1");
+          gl.domElement.setPointerCapture(event.pointerId);
+        }}
+        onPointerUp={(event: ThreeEvent<PointerEvent>) => {
+          if ((progressRef.current ?? 0) < 0.3) return;
+          if (!drag.current.active) return;
+          const moved = drag.current.moved;
+          drag.current.active = false;
+          if (moved > 12) {
+            drag.current.slowUntil = performance.now() + 2000;
+            return;
+          }
+          const local = earth.current
+            ? earth.current.worldToLocal(event.point.clone())
+            : event.point;
+          const { lat, lon } = vecToLatLon(local);
+          const place = `How has the land at latitude ${lat.toFixed(2)}, longitude ${lon.toFixed(2)} changed since 2021?`;
+          startPageTransition();
+          router.push(`/analyze?draft=1&q=${encodeURIComponent(place)}`);
+        }}
+      >
+        <sphereGeometry args={[1, 256, 256]} />
+        <meshPhongMaterial map={day} specular="#6d88a8" shininess={4} />
       </mesh>
-      <mesh ref={clouds} scale={1.012}>
+      <mesh ref={clouds} scale={1.012} raycast={() => null}>
         <sphereGeometry args={[1, 64, 64]} />
         <meshPhongMaterial map={cloudMap} transparent opacity={0.38} depthWrite={false} />
       </mesh>
-      <Atmosphere />
+      <Atmosphere progressRef={progressRef} />
     </group>
   );
 }
 
-function Atmosphere() {
+function Atmosphere({ progressRef }: { progressRef: React.RefObject<number> }) {
+  const mesh = useRef<THREE.Mesh>(null);
   const material = useMemo(
     () =>
       new THREE.ShaderMaterial({
+        uniforms: { uAlpha: { value: 0.4 } },
         vertexShader: `
           varying vec3 vNormal;
           void main() {
@@ -106,10 +285,11 @@ function Atmosphere() {
           }
         `,
         fragmentShader: `
+          uniform float uAlpha;
           varying vec3 vNormal;
           void main() {
             float fresnel = pow(0.68 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.4);
-            gl_FragColor = vec4(0.45, 0.72, 1.0, 1.0) * fresnel;
+            gl_FragColor = vec4(0.45, 0.72, 1.0, uAlpha) * fresnel;
           }
         `,
         blending: THREE.AdditiveBlending,
@@ -120,19 +300,277 @@ function Atmosphere() {
     [],
   );
 
+  useFrame((state) => {
+    const progress = progressRef.current ?? 0;
+    const zoomIn = progress >= 0.5 ? 1 : smoothstep(0.4, 0.5, progress);
+    const cityEase = zoomIn * zoomIn * (3 - 2 * zoomIn);
+    const camZ = state.camera.position.length();
+    const scale = Math.min(1.06, Math.max(1.02, camZ - 0.045));
+    if (mesh.current) mesh.current.scale.setScalar(scale);
+    material.uniforms.uAlpha.value = 0.36 * (1 - cityEase * 0.94);
+  });
+
   return (
-    <mesh scale={1.14} material={material}>
+    <mesh ref={mesh} scale={1.06} material={material} raycast={() => null}>
       <sphereGeometry args={[1, 64, 64]} />
     </mesh>
   );
 }
 
-export default function EarthCanvas({ progressRef }: { progressRef: React.RefObject<number> }) {
+function starTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return new THREE.Texture();
+  const glow = ctx.createRadialGradient(64, 64, 0, 64, 64, 62);
+  glow.addColorStop(0, "rgba(255,255,255,1)");
+  glow.addColorStop(0.08, "rgba(255,255,255,0.95)");
+  glow.addColorStop(0.18, "rgba(210,230,255,0.45)");
+  glow.addColorStop(0.45, "rgba(150,190,255,0.08)");
+  glow.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, 128, 128);
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(64, 2);
+  ctx.lineTo(64, 126);
+  ctx.moveTo(2, 64);
+  ctx.lineTo(126, 64);
+  ctx.stroke();
+  ctx.globalAlpha = 0.55;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(20, 20);
+  ctx.lineTo(108, 108);
+  ctx.moveTo(108, 20);
+  ctx.lineTo(20, 108);
+  ctx.stroke();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function SatelliteShape() {
   return (
-    <div className="pointer-events-none absolute inset-0 z-0">
+    <group>
+      <mesh position={[0, 0.24, 0]}>
+        <boxGeometry args={[0.3, 0.22, 0.015]} />
+        <meshPhongMaterial color="#1d4e96" specular="#c5dcff" shininess={48} />
+      </mesh>
+      <mesh position={[0, -0.24, 0]}>
+        <boxGeometry args={[0.3, 0.22, 0.015]} />
+        <meshPhongMaterial color="#16386e" specular="#c5dcff" shininess={48} />
+      </mesh>
+        <mesh scale={[1.15, 0.62, 0.62]}>
+          <sphereGeometry args={[0.16, 20, 16]} />
+          <meshPhongMaterial color="#d5dee8" specular="#ffffff" shininess={90} />
+        </mesh>
+      <mesh position={[0.02, 0, 0.05]}>
+        <boxGeometry args={[0.16, 0.05, 0.012]} />
+        <meshPhongMaterial color="#d7b15a" specular="#fff2cc" shininess={50} />
+      </mesh>
+      <mesh position={[0.24, 0, 0]} rotation={[0.35, 0, 0]}>
+        <cylinderGeometry args={[0.07, 0.07, 0.02, 8]} />
+        <meshPhongMaterial color="#e7eef6" specular="#ffffff" shininess={70} />
+      </mesh>
+      <mesh position={[-0.24, 0.08, 0]} rotation={[0, 0, 0.7]}>
+        <cylinderGeometry args={[0.007, 0.007, 0.16, 5]} />
+        <meshPhongMaterial color="#f2f6fb" />
+      </mesh>
+    </group>
+  );
+}
+
+function SurfaceSatellite({
+  progressRef,
+  hover,
+}: {
+  progressRef: React.RefObject<number>;
+  hover: React.RefObject<{ active: boolean; point: THREE.Vector3 }>;
+}) {
+  const group = useRef<THREE.Group>(null);
+  const outward = useMemo(() => new THREE.Vector3(0, 0, 1), []);
+  const aim = useMemo(() => new THREE.Quaternion(), []);
+  const place = useMemo(() => new THREE.Vector3(), []);
+
+  useFrame((_, delta) => {
+    const node = group.current;
+    const hand = hover.current;
+    if (!node || !hand) return;
+    const progress = progressRef.current ?? 0;
+    const show = hand.active && progress >= 0.3 && progress < 0.5;
+    node.visible = show;
+    if (!show) return;
+    const follow = 1 - Math.exp(-delta * 16);
+    place.copy(hand.point).normalize().multiplyScalar(1.045);
+    node.position.lerp(place, follow);
+    aim.setFromUnitVectors(outward, place.clone().normalize());
+    node.quaternion.slerp(aim, follow);
+  });
+
+  return (
+    <group ref={group} visible={false} scale={0.22} raycast={() => null}>
+      <SatelliteShape />
+    </group>
+  );
+}
+
+function OrbitSatellite({ progressRef }: { progressRef: React.RefObject<number> }) {
+  const group = useRef<THREE.Group>(null);
+  const bubble = useRef<HTMLDivElement>(null);
+  const until = useRef(0);
+  const [open, setOpen] = useState(false);
+
+  useFrame((state) => {
+    if (!group.current) return;
+    const progress = progressRef.current ?? 0;
+    const fade = smoothstep(0.34, 0.38, progress) * (1 - smoothstep(0.5, 0.56, progress));
+    const t = state.clock.elapsedTime * 0.42;
+    const radius = 1.78;
+    group.current.position.set(Math.cos(t) * radius, Math.sin(t) * 0.34, Math.sin(t) * radius);
+    group.current.lookAt(0, 0, 0);
+    group.current.rotateX(0.4);
+    group.current.scale.setScalar(fade < 0.04 ? 0 : 0.22);
+    group.current.visible = fade > 0.04;
+    const node = bubble.current;
+    if (!node) return;
+    const remain = until.current - performance.now();
+    const opacity = remain <= 0 ? 0 : remain < 700 ? remain / 700 : Math.min(1, (2500 - remain) / 280);
+    node.style.opacity = String(opacity);
+  });
+
+  const reveal = (event: ThreeEvent<PointerEvent>) => {
+    event.stopPropagation();
+    sessionStorage.setItem("gaia-quote", "1");
+    until.current = performance.now() + 2500;
+    setOpen(true);
+  };
+
+  return (
+    <group ref={group} visible={false}>
+      <group
+        rotation={[0.15, 0.2, -0.42]}
+        onClick={reveal}
+        onPointerOver={() => {
+          document.body.style.cursor = "pointer";
+        }}
+        onPointerOut={() => {
+          document.body.style.cursor = "";
+        }}
+      >
+        <SatelliteShape />
+      </group>
+      {open && (
+        <Html position={[0.42, 0.34, 0]} style={{ pointerEvents: "none" }} zIndexRange={[40, 0]}>
+          <div
+            ref={bubble}
+            className="w-[220px] rounded-2xl bg-[#071018]/90 px-3 py-2 text-[12px] leading-snug text-[#7dccff] opacity-0 shadow-lg"
+          >
+            We choose to do this not because it is easy but because we thought it would be.
+          </div>
+        </Html>
+      )}
+    </group>
+  );
+}
+
+function SkyStars({ progressRef }: { progressRef: React.RefObject<number> }) {
+  const texture = useMemo(() => starTexture(), []);
+  const stars = useMemo(() => {
+    let seed = 42;
+    const rand = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+    const placed: { id: number; position: [number, number, number]; size: number; hit: number }[] = [];
+    const push = (x: number, y: number, z: number) => {
+      placed.push({
+        id: placed.length,
+        position: [x, y, z],
+        size: 0.16 + rand() * 0.22,
+        hit: 0.62 + rand() * 0.35,
+      });
+    };
+    while (placed.length < 46) {
+      const ax = (rand() - 0.5) * 1.05;
+      const ay = rand() * 0.38;
+      const dist = 14 + rand() * 8;
+      push(Math.tan(ax) * dist, 1.05 + Math.tan(ay) * dist * 0.5, 4.1 - dist);
+    }
+    while (placed.length < 88) {
+      const ax = (rand() - 0.5) * 1.15;
+      const ay = 0.05 + rand() * 0.42;
+      const dist = 13 + rand() * 9;
+      push(Math.tan(ax) * dist, -0.15 - Math.tan(ay) * dist * 0.62, 3.4 - dist);
+    }
+    return placed;
+  }, []);
+  const glow = useRef(stars.map(() => ({ value: 0, target: 0 })));
+  const sprites = useRef<(THREE.Sprite | null)[]>([]);
+  const seen = useRef(new Set<number>());
+
+  useFrame((_, delta) => {
+    const ease = 1 - Math.exp(-delta * 7);
+    const fade = 1 - smoothstep(0.48, 0.58, progressRef.current ?? 0);
+    glow.current.forEach((item, index) => {
+      item.target = Math.max(0, item.target - delta * 0.9);
+      item.value += (item.target - item.value) * ease;
+      const sprite = sprites.current[index];
+      if (!sprite) return;
+      const scale = stars[index].size * (1 + item.value * 1.35);
+      sprite.scale.set(scale, scale, 1);
+      const material = sprite.material as THREE.SpriteMaterial;
+      material.opacity = (0.42 + item.value * 0.58) * fade;
+    });
+  });
+
+  const twinkle = (id: number) => {
+    const item = glow.current[id];
+    if (item) item.target = 1;
+    if (!seen.current.has(id)) {
+      seen.current.add(id);
+      sessionStorage.setItem("gaia-stars", String(seen.current.size));
+    }
+  };
+
+  return (
+    <group>
+      {stars.map((star) => (
+        <group key={star.id} position={star.position}>
+          <sprite ref={(node) => { sprites.current[star.id] = node; }} scale={star.size}>
+            <spriteMaterial
+              map={texture}
+              transparent
+              depthTest
+              depthWrite={false}
+              blending={THREE.AdditiveBlending}
+              opacity={0.42}
+            />
+          </sprite>
+          <mesh
+            onPointerOver={(event: ThreeEvent<PointerEvent>) => {
+              event.stopPropagation();
+              twinkle(star.id);
+            }}
+          >
+            <sphereGeometry args={[star.hit, 8, 8]} />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
+export default function EarthCanvas({ progressRef }: { progressRef: React.RefObject<number> }) {
+  const hover = useRef({ active: false, point: new THREE.Vector3(0, 1, 0) });
+  return (
+    <div className="absolute inset-0 z-0">
       <Canvas
         camera={{ position: [0, 0.22, 3.65], fov: 32, near: 0.1, far: 100 }}
-        dpr={[1, 1.6]}
+        dpr={[1, 2]}
         gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
         onCreated={({ gl }) => {
           gl.setClearColor(0x000000, 0);
@@ -143,9 +581,11 @@ export default function EarthCanvas({ progressRef }: { progressRef: React.RefObj
         <ambientLight intensity={0.28} />
         <directionalLight position={[5, 2.2, 4]} intensity={2.1} color="#fff6ea" />
         <directionalLight position={[-6, -2, -3]} intensity={0.35} color="#7eafff" />
-        <Stars radius={60} depth={40} count={1600} factor={2.4} saturation={0} fade speed={0.25} />
+        <SkyStars progressRef={progressRef} />
+        <OrbitSatellite progressRef={progressRef} />
+        <SurfaceSatellite progressRef={progressRef} hover={hover} />
         <Suspense fallback={null}>
-          <Earth progressRef={progressRef} />
+          <Earth progressRef={progressRef} hover={hover} />
         </Suspense>
       </Canvas>
     </div>
