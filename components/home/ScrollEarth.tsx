@@ -2,7 +2,8 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import LunaChat from "@/components/home/LunaChat";
 
 const EarthCanvas = dynamic(() => import("./EarthCanvas"), { ssr: false });
 
@@ -58,7 +59,18 @@ export default function ScrollEarth() {
   const copyRef = useRef<HTMLParagraphElement>(null);
   const cueRef = useRef<HTMLParagraphElement>(null);
   const hintRef = useRef<HTMLParagraphElement>(null);
+  const globeRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const introRef = useRef(0);
+  const applyRef = useRef<(progress: number) => void>(() => {});
   const seek = useRef({ time: 0, busy: false });
+  const [sceneReady, setSceneReady] = useState(false);
+  const onReady = useCallback(() => setSceneReady(true), []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSceneReady(true), 8000);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const scrub = (video: HTMLVideoElement) => {
     const next = seek.current.time;
@@ -92,6 +104,15 @@ export default function ScrollEarth() {
     const row = rowRef.current;
     if (!geo || !ana || !ai || !slot || !row) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let phraseSize = Math.min(window.innerWidth * 0.16, 180);
+    const big = Math.min(window.innerWidth * 0.082, 88);
+    row.style.fontSize = `${phraseSize}px`;
+    phraseSize *= Math.min(1.6, (window.innerWidth * 0.76) / Math.max(row.getBoundingClientRect().width, 1));
+    row.style.fontSize = `${phraseSize}px`;
+    slot.style.width = "0px";
+    ai.style.opacity = "0";
+    ai.style.position = "absolute";
+    if (!reduce && !sceneReady) return;
     const finish = () => {
       geo.textContent = "g";
       ana.textContent = "a";
@@ -107,14 +128,10 @@ export default function ScrollEarth() {
       row.style.fontSize = "";
     };
     if (reduce) {
+      introRef.current = 1;
       finish();
       return;
     }
-    let phraseSize = Math.min(window.innerWidth * 0.064, 62);
-    const big = Math.min(window.innerWidth * 0.16, 168);
-    row.style.fontSize = `${phraseSize}px`;
-    phraseSize *= Math.min(1, (window.innerWidth * 0.92) / Math.max(row.getBoundingClientRect().width, 1));
-    row.style.fontSize = `${phraseSize}px`;
     const smallAi = ai.getBoundingClientRect().width || 48;
     const phraseGeo = geo.textContent;
     const phraseAna = ana.textContent;
@@ -151,7 +168,7 @@ export default function ScrollEarth() {
     let swapped = false;
     const started = performance.now();
     const tick = (now: number) => {
-      const t = (now - started - 2000) / 1000;
+      const t = (now - started - 400) / 1000;
       if (t < 0) {
         frame = requestAnimationFrame(tick);
         return;
@@ -175,17 +192,21 @@ export default function ScrollEarth() {
       const size = lerp(phraseSize, big, sprung);
       row.style.fontSize = `${size}px`;
       slot.style.width = `${lerp(smallAi, bigAi, sprung) * sprung}px`;
+      introRef.current = sprung;
+      applyRef.current(progressRef.current);
       if (settle < 1) frame = requestAnimationFrame(tick);
       else {
         slot.style.width = `${ai.getBoundingClientRect().width}px`;
         geo.style.transform = "translateX(0px)";
         ana.style.transform = "translateX(0px)";
+        introRef.current = 1;
+        applyRef.current(progressRef.current);
         frame = requestAnimationFrame(() => finish());
       }
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, []);
+  }, [sceneReady]);
 
   useLayoutEffect(() => {
     if ("scrollRestoration" in history) history.scrollRestoration = "manual";
@@ -198,18 +219,38 @@ export default function ScrollEarth() {
     let teardown = () => {};
 
     const apply = (progress: number) => {
-      const lift = smoothstep(0.1, 0.3, progress);
+      const intro = introRef.current;
+      const shift = smoothstep(0, 0.22, progress);
+      const width = window.innerWidth;
+      const height = window.innerHeight;
       const mark = markRef.current;
       if (mark) {
-        const size = lerp(
-          Math.min(window.innerWidth * 0.16, 168),
-          Math.min(window.innerWidth * 0.072, 68),
-          lift,
-        );
+        const phrase = Math.min(width * 0.072, 96);
+        const hero = Math.min(width * 0.082, 88);
+        const scrolled = Math.min(width * 0.068, 72);
+        const size = intro < 0.999 ? lerp(phrase, hero, intro) : lerp(hero, scrolled, shift);
         mark.style.translate = "-50% -50%";
-        mark.style.top = `${lerp(window.innerHeight * 0.24, window.innerHeight * 0.12, lift)}px`;
+        mark.style.left = `${width * 0.5}px`;
+        mark.style.top = `${lerp(height * 0.5, height * 0.1, intro)}px`;
         mark.style.fontSize = `${size}px`;
         mark.style.opacity = String(1 - smoothstep(0.48, 0.56, progress));
+      }
+      const x = lerp(48, 0, shift);
+      const y = 0;
+      const scale = 1;
+      if (globeRef.current) {
+        globeRef.current.style.opacity = String(intro);
+        globeRef.current.style.transform = `translate(${x}%, ${y}%) scale(${scale})`;
+      }
+      if (panelRef.current) {
+        const show = intro * (1 - smoothstep(0.02, 0.16, progress));
+        const panelW = Math.min(300, width * 0.32);
+        panelRef.current.style.left = `${Math.max(32, width * 0.04)}px`;
+        panelRef.current.style.width = `${panelW}px`;
+        panelRef.current.style.top = `${height / 2}px`;
+        panelRef.current.style.translate = "0% -50%";
+        panelRef.current.style.opacity = String(show);
+        panelRef.current.style.pointerEvents = show > 0.6 ? "auto" : "none";
       }
 
       const film = smoothstep(0.64, 0.86, progress);
@@ -241,7 +282,9 @@ export default function ScrollEarth() {
         descRef.current.style.transform = `translate(-50%, ${lerp(36, 0, briefing)}px)`;
         descRef.current.style.pointerEvents = briefing > 0.55 ? "auto" : "none";
       }
-      if (cueRef.current) cueRef.current.style.opacity = String(1 - smoothstep(0.02, 0.1, progress));
+      if (cueRef.current) {
+        cueRef.current.style.opacity = String(introRef.current * (1 - smoothstep(0.02, 0.1, progress)));
+      }
       if (hintRef.current) {
         const show = smoothstep(0.31, 0.36, progress) * (1 - smoothstep(0.5, 0.6, progress));
         hintRef.current.style.opacity = String(show);
@@ -262,6 +305,7 @@ export default function ScrollEarth() {
       }
     }
     if (reduce && wrapRef.current) wrapRef.current.style.height = "100vh";
+    applyRef.current = apply;
     apply(reduce ? 1 : 0);
     progressRef.current = reduce ? 1 : 0;
     if (reduce) return;
@@ -317,12 +361,25 @@ export default function ScrollEarth() {
   return (
     <div ref={wrapRef} className="relative h-[860vh] bg-[#05060f]">
       <div className="sticky top-0 h-screen overflow-hidden bg-[#05060f]">
-        <EarthCanvas progressRef={progressRef} />
+        <div ref={globeRef} className="absolute inset-0 origin-center opacity-0">
+          <EarthCanvas progressRef={progressRef} onReady={onReady} />
+        </div>
         <div ref={veilRef} className="pointer-events-none absolute inset-0 z-[5] bg-[#05060f] opacity-0" />
 
         <div
+          ref={panelRef}
+          className="absolute top-1/2 z-20 text-[15px] leading-relaxed text-white/85 opacity-0"
+        >
+          <p>
+            gAIa turns a question about a place into a record of how the land changed. It uses Earth
+            Engine to pull a satellite scene for each year, then reads what the change is asking for.
+          </p>
+          <LunaChat />
+        </div>
+
+        <div
           ref={markRef}
-          className="pointer-events-none absolute left-1/2 top-[24%] z-20 font-semibold leading-none tracking-tight text-white"
+          className="pointer-events-none absolute left-1/2 top-1/2 z-20 font-semibold leading-none tracking-tight text-white"
           style={{ translate: "-50% -50%" }}
         >
           <span ref={rowRef} className="inline-flex items-baseline whitespace-nowrap">

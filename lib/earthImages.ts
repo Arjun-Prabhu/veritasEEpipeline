@@ -18,7 +18,7 @@ export function pullSatelliteImages(lat: number, lon: number, years: number[]) {
   }
 
   const id = createHash("sha1")
-    .update(`${lat.toFixed(4)}:${lon.toFixed(4)}:${years.join(",")}`)
+    .update(`${lat.toFixed(4)}:${lon.toFixed(4)}:${years.join(",")}:5km`)
     .digest("hex")
     .slice(0, 12);
   const out = path.join(process.cwd(), "EarthEngine", "out", id);

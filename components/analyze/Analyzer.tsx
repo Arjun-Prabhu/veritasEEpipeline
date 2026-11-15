@@ -212,10 +212,10 @@ function TypedBriefing({
     setCount(0);
     let shown = 0;
     const timer = window.setInterval(() => {
-      shown += script.length > 700 ? 3 : 2;
+      shown += 1;
       setCount(Math.min(script.length, shown));
       if (shown >= script.length) window.clearInterval(timer);
-    }, 14);
+    }, 36);
     return () => window.clearInterval(timer);
   }, [script]);
 

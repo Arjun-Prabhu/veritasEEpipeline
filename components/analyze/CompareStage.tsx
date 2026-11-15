@@ -43,6 +43,7 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
   const beforeMask = frameSrc(before, "mask");
   const afterMask = frameSrc(after, "mask");
   const single = frames.length < 2;
+  const frame = usePictureFrame(afterPhoto || beforePhoto);
 
   return (
     <section className="flex min-h-0 flex-col gap-4 overflow-auto rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
@@ -89,17 +90,20 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_148px]">
         <div>
-          <div className="relative aspect-[16/10] overflow-hidden rounded-2xl bg-black">
+          <div
+            className="relative w-full overflow-hidden rounded-2xl bg-black"
+            style={{ aspectRatio: frame.aspect }}
+          >
             {single ? (
-              <FrameImage src={beforePhoto} mask={maskOn ? beforeMask : null} alt={`${before.year} satellite tile`} />
+              <FrameImage src={beforePhoto} mask={maskOn ? beforeMask : null} alt={`${before.year} satellite tile`} frame={frame} />
             ) : (
               <>
-                <FrameImage src={afterPhoto} mask={maskOn ? afterMask : null} alt={`${after.year} satellite tile`} />
+                <FrameImage src={afterPhoto} mask={maskOn ? afterMask : null} alt={`${after.year} satellite tile`} frame={frame} />
                 <div
                   className="absolute inset-0"
                   style={{ clipPath: `inset(0 ${100 - position}% 0 0)` }}
                 >
-                  <FrameImage src={beforePhoto} mask={maskOn ? beforeMask : null} alt={`${before.year} satellite tile`} />
+                  <FrameImage src={beforePhoto} mask={maskOn ? beforeMask : null} alt={`${before.year} satellite tile`} frame={frame} />
                 </div>
                 <div
                   className="pointer-events-none absolute inset-y-0 z-10 w-px bg-white"
@@ -199,14 +203,81 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
   );
 }
 
-function FrameImage({ src, mask, alt }: { src: string | null; mask: string | null; alt: string }) {
+function usePictureFrame(src: string | null) {
+  const [frame, setFrame] = useState({ aspect: 1, x: 0, y: 0, w: 1, h: 1 });
+  useEffect(() => {
+    if (!src) return;
+    let ignore = false;
+    const img = new Image();
+    img.onload = () => {
+      if (ignore) return;
+      setFrame(contentFrame(img));
+    };
+    img.src = src;
+    return () => {
+      ignore = true;
+    };
+  }, [src]);
+  return frame;
+}
+
+function contentFrame(img: HTMLImageElement) {
+  const sample = 180;
+  const width = Math.min(img.naturalWidth, sample);
+  const height = Math.min(img.naturalHeight, sample);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context || !width || !height) return { aspect: 1, x: 0, y: 0, w: 1, h: 1 };
+  context.drawImage(img, 0, 0, width, height);
+  const pixels = context.getImageData(0, 0, width, height).data;
+  let minX = width;
+  let minY = height;
+  let maxX = 0;
+  let maxY = 0;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 4;
+      if (pixels[index] + pixels[index + 1] + pixels[index + 2] < 28) continue;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (maxX <= minX || maxY <= minY) return { aspect: img.naturalWidth / img.naturalHeight || 1, x: 0, y: 0, w: 1, h: 1 };
+  const x = minX / width;
+  const y = minY / height;
+  const w = (maxX - minX + 1) / width;
+  const h = (maxY - minY + 1) / height;
+  const aspect = (w * img.naturalWidth) / (h * img.naturalHeight);
+  return { aspect, x, y, w, h };
+}
+
+function FrameImage({
+  src,
+  mask,
+  alt,
+  frame,
+}: {
+  src: string | null;
+  mask: string | null;
+  alt: string;
+  frame: { x: number; y: number; w: number; h: number };
+}) {
   if (!src) return null;
+  const style = {
+    width: `${100 / frame.w}%`,
+    height: `${100 / frame.h}%`,
+    maxWidth: "none",
+    marginLeft: `${(-frame.x / frame.w) * 100}%`,
+    marginTop: `${(-frame.y / frame.h) * 100}%`,
+  };
   return (
-    <div className="absolute inset-0">
-      <img src={src} alt={alt} className="h-full w-full object-cover" />
-      {mask && (
-        <img src={mask} alt="" className="absolute inset-0 h-full w-full object-cover opacity-70" />
-      )}
+    <div className="absolute inset-0 overflow-hidden">
+      <img src={src} alt={alt} style={style} />
+      {mask && <img src={mask} alt="" style={style} className="absolute left-0 top-0 opacity-70" />}
     </div>
   );
 }

@@ -3,17 +3,28 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { lunaInvited, LUNA_INVITE } from "@/lib/luna";
 import { cx } from "@/lib/format";
+import { startPageTransition } from "@/lib/transition";
 
 const LINKS = [
   { href: "/", label: "Home" },
   { href: "/analyze", label: "Analyze" },
   { href: "/explore", label: "Explore" },
+  { href: "/luna", label: "Luna" },
 ];
 
 export default function Nav() {
   const pathname = usePathname();
+  const [invite, setInvite] = useState(false);
   const [label, setLabel] = useState("Placeholder ML");
+
+  useEffect(() => {
+    const sync = () => setInvite(lunaInvited());
+    sync();
+    window.addEventListener(LUNA_INVITE, sync);
+    return () => window.removeEventListener(LUNA_INVITE, sync);
+  }, []);
   const [live, setLive] = useState(false);
 
   useEffect(() => {
@@ -41,15 +52,32 @@ export default function Nav() {
       <nav className="pointer-events-auto flex items-center gap-4 text-[15px] text-white/70 md:gap-6">
         {LINKS.map((link) => {
           const active = pathname === link.href;
+          const marked = link.href === "/luna" && invite;
+          const className = cx(
+            "group relative py-1 transition duration-500 hover:text-white",
+            !marked && "hover:scale-110",
+            active && "text-white",
+          );
+          if (marked) {
+            return (
+              <span key={link.href} className="prompt-gun inline-flex rounded-full">
+                <Link
+                  href={link.href}
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => startPageTransition()}
+                  className="relative z-[1] m-[1.5px] rounded-full bg-[#05060f] px-3 py-1 text-[20px] text-white"
+                >
+                  {link.label}
+                </Link>
+              </span>
+            );
+          }
           return (
             <Link
               key={link.href}
               href={link.href}
               aria-current={active ? "page" : undefined}
-              className={cx(
-                "group relative py-1 transition duration-500 hover:scale-110 hover:text-white",
-                active && "text-white",
-              )}
+              className={className}
             >
               {link.label}
               <span className="absolute bottom-0 left-0 h-px w-full origin-left scale-x-0 bg-white/80 transition-transform duration-500 ease-out group-hover:scale-x-100" />

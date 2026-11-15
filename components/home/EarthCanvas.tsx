@@ -148,7 +148,6 @@ function Earth({
   const poses = useMemo(() => {
     const charlotte = latLonToVec(35.2271, -80.8431, 1).normalize();
     return {
-      horizon: new THREE.Quaternion().setFromEuler(new THREE.Euler(0.42, 1.05, 0)),
       globe: new THREE.Quaternion().setFromEuler(new THREE.Euler(0.18, 0.42, 0)),
       city: new THREE.Quaternion().setFromUnitVectors(charlotte, new THREE.Vector3(0, 0, 1)),
       mixed: new THREE.Quaternion(),
@@ -157,9 +156,7 @@ function Earth({
 
   useFrame((state, delta) => {
     const progress = progressRef.current ?? 0;
-    const zoomOut = smoothstep(0.06, 0.32, progress);
     const zoomIn = progress >= 0.5 ? 1 : smoothstep(0.4, 0.5, progress);
-    const globeEase = zoomOut * zoomOut * (3 - 2 * zoomOut);
     const cityEase = zoomIn * zoomIn * (3 - 2 * zoomIn);
 
     const now = performance.now();
@@ -199,7 +196,7 @@ function Earth({
     spin.current = hand.yaw;
     spinQ.setFromAxisAngle(polar, hand.yaw);
     pitchQ.setFromAxisAngle(xAxis, hand.pitch);
-    poses.mixed.copy(poses.horizon).slerp(poses.globe, globeEase);
+    poses.mixed.copy(poses.globe);
     poses.mixed.multiply(spinQ).multiply(pitchQ);
     if (earth.current) earth.current.quaternion.copy(poses.mixed);
     if (clouds.current) {
@@ -208,9 +205,9 @@ function Earth({
       cloudMat.opacity = 0.38 * (1 - cityEase);
     }
 
-    const z = lerp(lerp(3.65, 5.35, globeEase), 1.1, cityEase);
-    const y = lerp(lerp(0.22, 0, globeEase), 0, cityEase);
-    const lookY = lerp(lerp(0.92, 0.2, globeEase), 0, cityEase);
+    const z = lerp(5.15, 1.1, cityEase);
+    const y = lerp(0, 0, cityEase);
+    const lookY = lerp(0, 0, cityEase);
     const settle = cityEase > 0.2 ? 8 : 3.4;
     state.camera.position.z = THREE.MathUtils.damp(state.camera.position.z, z, settle, delta);
     state.camera.position.y = THREE.MathUtils.damp(state.camera.position.y, y, settle, delta);
@@ -645,7 +642,20 @@ const CONTINENT_IDS: Record<Continent["id"], number> = {
   antarctica: 7,
 };
 
-export default function EarthCanvas({ progressRef }: { progressRef: React.RefObject<number> }) {
+function EarthReady({ onReady }: { onReady?: () => void }) {
+  useEffect(() => {
+    onReady?.();
+  }, [onReady]);
+  return null;
+}
+
+export default function EarthCanvas({
+  progressRef,
+  onReady,
+}: {
+  progressRef: React.RefObject<number>;
+  onReady?: () => void;
+}) {
   const hover = useRef({ active: false, point: new THREE.Vector3(0, 1, 0) });
   const outlineRef = useRef(0);
   const [continent, setContinent] = useState<Continent | null>(null);
@@ -703,6 +713,7 @@ export default function EarthCanvas({ progressRef }: { progressRef: React.RefObj
         <SurfaceSatellite progressRef={progressRef} hover={hover} />
         <Suspense fallback={null}>
           <Earth progressRef={progressRef} hover={hover} onContinent={selectContinent} outlineRef={outlineRef} />
+          <EarthReady onReady={onReady} />
         </Suspense>
       </Canvas>
       {continent && (

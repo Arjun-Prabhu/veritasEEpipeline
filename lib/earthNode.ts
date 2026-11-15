@@ -51,6 +51,9 @@ type EarthImage = {
 };
 
 const PROJECT = "veritasaihackathon";
+// Earth Engine CLI defaults, used when a credentials file stores only a refresh token.
+const EARTH_ENGINE_CLIENT_ID = "517222506229-vsmmajv00ul0bs7p89v5m89qs8eb9359.apps.googleusercontent.com";
+const EARTH_ENGINE_CLIENT_SECRET = "RUP0RZ6e0pPhDzsqIJ7KlNd1";
 let ready: Promise<EarthEngine> | null = null;
 
 function credentials() {
@@ -64,7 +67,12 @@ export function earthEngineConfigured() {
 }
 
 async function client() {
-  if (!ready) ready = connect();
+  if (!ready) {
+    ready = connect().catch((error) => {
+      ready = null;
+      throw error;
+    });
+  }
   return ready;
 }
 
@@ -79,8 +87,8 @@ async function connect() {
     });
   } else if (key.refresh_token) {
     const body = new URLSearchParams({
-      client_id: key.client_id,
-      client_secret: key.client_secret,
+      client_id: key.client_id || EARTH_ENGINE_CLIENT_ID,
+      client_secret: key.client_secret || EARTH_ENGINE_CLIENT_SECRET,
       refresh_token: key.refresh_token,
       grant_type: "refresh_token",
     });
@@ -109,7 +117,7 @@ function info<T>(value: { getInfo: (cb: (result: T, error?: unknown) => void) =>
 
 async function scene(ee: EarthEngine, lat: number, lon: number, year: number) {
   const point = ee.Geometry.Point([lon, lat]);
-  const region = point.buffer(1000).bounds();
+  const region = point.buffer(2500).bounds();
   const collection = new ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
     .filterBounds(point)
     .filterDate(`${year}-01-01`, `${year + 1}-01-01`)
@@ -120,14 +128,16 @@ async function scene(ee: EarthEngine, lat: number, lon: number, year: number) {
   const image = new ee.Image(collection.first()).select(["B4", "B3", "B2"]);
   const url = await new Promise<string>((resolve, reject) => {
     image.getThumbURL(
-      { region, dimensions: 512, min: 0, max: 3000, gamma: 1.3, format: "png" },
+      { region, dimensions: 500, min: 0, max: 3000, gamma: 1.3, format: "png" },
       (thumb, error) => (error || !thumb ? reject(new Error(error || `No scene for ${year}`)) : resolve(thumb)),
     );
   });
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Scene download for ${year} failed (${response.status}).`);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  return `data:image/png;base64,${bytes.toString("base64")}`;
+  const source = Buffer.from(await response.arrayBuffer());
+  const sharp = (await import("sharp")).default;
+  const smooth = await sharp(source).resize(1500, 1500, { kernel: "lanczos3" }).png().toBuffer();
+  return `data:image/png;base64,${smooth.toString("base64")}`;
 }
 
 export async function pullSatelliteImagesInNode(lat: number, lon: number, years: number[]) {
