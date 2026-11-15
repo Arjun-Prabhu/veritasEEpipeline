@@ -3,8 +3,6 @@ import os
 import cv2
 from concurrent.futures import ThreadPoolExecutor
 
-from xarray.ufuncs import asin
-
 import consts
 
 

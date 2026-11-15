@@ -1,16 +1,11 @@
 # Python dependencies
-cv2
-concurrent.futures
-xarray.ufuncs
-numpy
+# Installs the local yolo26mlx package (src/) plus its mlx, numpy, pillow,
+# pyyaml and tqdm deps, and the optional extras used by scripts/ and tests/:
+# opencv-python, lap, scipy, pycocotools, matplotlib, torch, ultralytics,
+# safetensors, pytest.
+-e .[tracking,segment,pose,convert,dev]
+
+# Used by imageLoading.py (import ee)
 earthengine-api
-PIL
-ultralytics
-types
-pytest
-torch
-pathlib
-logging
-json
-re
-importlib
+
+flask
