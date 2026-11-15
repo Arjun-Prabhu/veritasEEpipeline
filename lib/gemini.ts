@@ -1,9 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import sharp from "sharp";
 import type { Analysis } from "@/lib/narrative";
 import type { ParsedQuery } from "@/lib/query";
-import type { MLModelResponse, YearImagery } from "@/services/mlModelService";
-import { renderTileFromUrl } from "@/services/tileArt";
+import type { MLModelResponse } from "@/services/mlModelService";
 
 const MODEL = "models/gemini-3.5-flash-lite";
 
@@ -16,7 +14,7 @@ export async function parseWithGemini(prompt: string): Promise<Partial<ParsedQue
   if (!ai) return null;
   const response = await ai.models.generateContent({
     model: MODEL,
-    contents: `Extract a geospatial land-change query from the user. The present year is 2026. If they give no timeframe, set start_year to 2021 and end_year to 2026. If they give one year with "since" or "from", use it as start_year and 2026 as end_year. location is the city or town, not the whole sentence. Convert that city or town into latitude and longitude. If the prompt already includes latitude and longitude, keep those exact numbers and set location to the city or town at that point. Never put the raw numbers in location. region is the state, province, or equivalent administrative area, such as Michigan. country is the country, such as United States. If the place has no state or province, leave region empty. focus_area is a short phrase such as "deforestation", "urban development", "coastal change", "agriculture", "wildfire recovery", or "general land use".
+    contents: `Extract a geospatial land-change query from the user. The present year is 2026. If they give no timeframe, set start_year to 2021 and end_year to 2026. If they give one year with "since" or "from", use it as start_year and 2026 as end_year. location is the city or town, not the whole sentence. Convert that city or town into latitude and longitude. If the prompt already includes latitude and longitude, copy those numbers exactly. Do not round them and do not move them to a nearby city. Set location to the city or town that actually contains that point. Never put the raw numbers in location. region is the state, province, or equivalent administrative area, such as Michigan. country is the country, such as United States. If the place has no state or province, leave region empty. focus_area is a short phrase such as "deforestation", "urban development", "coastal change", "agriculture", "wildfire recovery", or "general land use".
 
 User prompt:
 ${prompt}`,
@@ -46,74 +44,54 @@ export async function interpretWithGemini(
   prompt: string,
   imagery: MLModelResponse,
 ): Promise<Omit<Analysis, "source"> | null> {
-  const ai = client();
-  if (!ai) return null;
-
-  const samples = pickFrames(imagery.frames);
-  const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
-    {
-      text: `You are gAIa, an earth-observation analyst writing for a curious non-expert.
+  const numbers = imagery.frames
+    .map(
+      (frame) =>
+        `${frame.year}: green ${frame.land_cover.green_space}, urban ${frame.land_cover.urban}, water ${frame.land_cover.water}, crops ${frame.land_cover.crops}, built ${frame.land_cover.built}`,
+    )
+    .join("\n");
+  const request = `You are Luna, writing a land-change briefing for a curious non-expert.
 
 The user asked: "${prompt}"
 Place: ${imagery.location}
+Region: ${imagery.region || ""}
+Country: ${imagery.country || ""}
 Focus: ${imagery.focus_area}
-Coordinates: ${imagery.latitude}, ${imagery.longitude}
 
-Name the city or town at these coordinates and use that name in the headline and the prose. Do not refer to the place by raw latitude and longitude.
+Use the place name in the headline and the prose. Do not mention raw latitude or longitude.
 
-Land-cover percentages for every returned year (these numbers are authoritative):
-${imagery.frames
-  .map(
-    (frame) =>
-      `${frame.year}: green ${frame.land_cover.green_space}, urban ${frame.land_cover.urban}, water ${frame.land_cover.water}, crops ${frame.land_cover.crops}, built ${frame.land_cover.built}`,
-  )
-  .join("\n")}
+Land-cover percentages for every year (these numbers are authoritative):
+${numbers}
 
-Images follow for selected years. They may be simulated previews or real model output. Do not invent counts of people, hectares, or statutes. Use what you know about this specific place to explain plausible causes. If the change is harmful, mitigation steps must be concrete and local. If the change is a recovery, the steps should protect that recovery. Write in plain prose. headline is one sentence.`,
-    },
-  ];
+Do not invent counts of people, hectares, or statutes. Use what you know about this specific place to explain plausible causes. If the change is harmful, mitigation steps must be concrete and local. If the change is a recovery, the steps should protect that recovery. headline is one sentence.
 
-  for (const frame of samples) {
-    const image = await inlineImage(frame);
-    parts.push({ text: `Imagery for ${frame.year}.` });
-    if (image) parts.push({ inlineData: image });
+Reply with only JSON using these keys: headline, observed_changes, root_causes, future_predictions, mitigation. mitigation is an array of short strings.`;
+
+  try {
+    const text = await askGemini(request);
+    const parsed = readJson<Omit<Analysis, "source">>(text);
+    if (parsed?.observed_changes && parsed.root_causes && parsed.future_predictions) {
+      return {
+        headline: parsed.headline || `${imagery.location} is changing.`,
+        observed_changes: parsed.observed_changes,
+        root_causes: parsed.root_causes,
+        future_predictions: parsed.future_predictions,
+        mitigation: Array.isArray(parsed.mitigation)
+          ? parsed.mitigation.filter((step) => typeof step === "string" && step.trim())
+          : [],
+      };
+    }
+    return {
+      headline: `${imagery.location} is changing.`,
+      observed_changes: text,
+      root_causes: "The reading did not separate a cause from the observation.",
+      future_predictions: "The next years depend on whether this pace continues.",
+      mitigation: [],
+    };
+  } catch (error) {
+    console.error("Gemini interpretation failed", error);
+    return null;
   }
-
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: [{ role: "user", parts }],
-    config: {
-      temperature: 0.4,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          headline: { type: Type.STRING },
-          observed_changes: { type: Type.STRING },
-          root_causes: { type: Type.STRING },
-          future_predictions: { type: Type.STRING },
-          mitigation: { type: Type.ARRAY, items: { type: Type.STRING } },
-        },
-        required: [
-          "headline",
-          "observed_changes",
-          "root_causes",
-          "future_predictions",
-          "mitigation",
-        ],
-      },
-    },
-  });
-
-  const parsed = readJson<Omit<Analysis, "source">>(response.text);
-  if (!parsed?.observed_changes || !parsed.root_causes || !parsed.future_predictions) return null;
-  return {
-    headline: parsed.headline || `${imagery.location} is changing.`,
-    observed_changes: parsed.observed_changes,
-    root_causes: parsed.root_causes,
-    future_predictions: parsed.future_predictions,
-    mitigation: Array.isArray(parsed.mitigation) ? parsed.mitigation.filter(Boolean) : [],
-  };
 }
 
 function readGeminiKey() {
@@ -173,52 +151,6 @@ function client() {
   const apiKey = readGeminiKey();
   if (!apiKey) return null;
   return new GoogleGenAI({ apiKey });
-}
-
-function pickFrames(frames: YearImagery[]) {
-  if (frames.length <= 3) return frames;
-  const middle = frames[Math.floor((frames.length - 1) / 2)];
-  return [frames[0], middle, frames[frames.length - 1]];
-}
-
-async function inlineImage(frame: YearImagery) {
-  try {
-    const input = await loadImage(frame);
-    if (!input) return null;
-    const png = await sharp(input, { density: 110, limitInputPixels: false })
-      .resize(768, 768, { fit: "inside" })
-      .png()
-      .toBuffer();
-    return { mimeType: "image/png", data: png.toString("base64") };
-  } catch (error) {
-    console.error(`Could not prepare imagery for ${frame.year}`, error);
-    return null;
-  }
-}
-
-async function loadImage(frame: YearImagery): Promise<Buffer | null> {
-  if (frame.image_base64) return Buffer.from(frame.image_base64, "base64");
-  const url = frame.image_url;
-  if (!url) return null;
-  if (url.startsWith("/api/tile")) {
-    const svg = renderTileFromUrl(url);
-    return svg ? Buffer.from(svg) : null;
-  }
-  if (url.startsWith("data:")) {
-    const match = url.match(/^data:[^;]+;base64,(.+)$/);
-    return match ? Buffer.from(match[1], "base64") : null;
-  }
-  if (url.startsWith("/")) {
-    const { readFile } = await import("node:fs/promises");
-    const { join } = await import("node:path");
-    return readFile(join(process.cwd(), "public", url));
-  }
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    const response = await fetch(url, { signal: AbortSignal.timeout(12_000) });
-    if (!response.ok) return null;
-    return Buffer.from(await response.arrayBuffer());
-  }
-  return null;
 }
 
 function readJson<T>(text: string | undefined): T | null {

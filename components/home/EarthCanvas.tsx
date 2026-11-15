@@ -1,6 +1,6 @@
 "use client";
 
-import { Html, useTexture } from "@react-three/drei";
+import { useTexture } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -53,20 +53,36 @@ function landPixel(image: CanvasImageSource & { width: number; height: number },
 }
 landPixel.canvas = null as HTMLCanvasElement | null;
 
+type GlobeFocus = {
+  close: boolean;
+  lat: number;
+  lon: number;
+  pin: { lat: number; lon: number } | null;
+};
+
 function Earth({
   progressRef,
   hover,
   onContinent,
   outlineRef,
+  focusRef,
+  onLandClick,
+  onDragged,
 }: {
   progressRef: React.RefObject<number>;
   hover: React.RefObject<{ active: boolean; point: THREE.Vector3 }>;
   onContinent: (continent: Continent | null) => void;
   outlineRef: React.RefObject<number>;
+  focusRef: React.RefObject<GlobeFocus>;
+  onLandClick: (lat: number, lon: number) => void;
+  onDragged: () => void;
 }) {
-  const router = useRouter();
   const earth = useRef<THREE.Group>(null);
   const clouds = useRef<THREE.Mesh>(null);
+  const pin = useRef<THREE.Group>(null);
+  const pinAim = useMemo(() => new THREE.Quaternion(), []);
+  const dragged = useRef(onDragged);
+  dragged.current = onDragged;
   const spin = useRef(0);
   const spinQ = useMemo(() => new THREE.Quaternion(), []);
   const polar = useMemo(() => new THREE.Vector3(0, 1, 0), []);
@@ -78,6 +94,7 @@ function Earth({
     slowUntil: 0,
     pausedUntil: 0,
     didPause: false,
+    reported: false,
     zooming: false,
     latchYaw: 0,
     latchPitch: 0,
@@ -128,10 +145,10 @@ function Earth({
 
   if (!day.userData.configured) {
     day.colorSpace = THREE.SRGBColorSpace;
-    day.generateMipmaps = false;
-    day.minFilter = THREE.LinearFilter;
+    day.generateMipmaps = true;
+    day.minFilter = THREE.LinearMipmapLinearFilter;
     day.magFilter = THREE.LinearFilter;
-    day.anisotropy = 1;
+    day.anisotropy = Math.min(4, gl.capabilities.getMaxAnisotropy());
     day.needsUpdate = true;
     day.userData.configured = true;
     cloudMap.colorSpace = THREE.SRGBColorSpace;
@@ -198,14 +215,33 @@ function Earth({
     pitchQ.setFromAxisAngle(xAxis, hand.pitch);
     poses.mixed.copy(poses.globe);
     poses.mixed.multiply(spinQ).multiply(pitchQ);
-    if (earth.current) earth.current.quaternion.copy(poses.mixed);
+    const focus = focusRef.current;
+    if (earth.current) {
+      if (focus?.close) {
+        const aim = latLonToVec(focus.lat, focus.lon, 1).normalize();
+        const face = new THREE.Quaternion().setFromUnitVectors(aim, new THREE.Vector3(0, 0, 1));
+        earth.current.quaternion.slerp(face, 1 - Math.exp(-delta * 2.4));
+      } else {
+        earth.current.quaternion.copy(poses.mixed);
+      }
+    }
+    if (pin.current) {
+      const placed = focus?.pin;
+      pin.current.visible = Boolean(placed);
+      if (placed) {
+        const normal = latLonToVec(placed.lat, placed.lon, 1).normalize();
+        pin.current.position.copy(normal).multiplyScalar(1.012);
+        pinAim.setFromUnitVectors(polar, normal);
+        pin.current.quaternion.copy(pinAim);
+      }
+    }
     if (clouds.current) {
       clouds.current.rotation.y = state.clock.elapsedTime * 0.012 * (1 - cityEase);
       const cloudMat = clouds.current.material as THREE.MeshPhongMaterial;
       cloudMat.opacity = 0.38 * (1 - cityEase);
     }
 
-    const z = lerp(5.15, 1.1, cityEase);
+    const z = focus?.close ? 3.15 : lerp(5.15, 1.1, cityEase);
     const y = lerp(0, 0, cityEase);
     const lookY = lerp(0, 0, cityEase);
     const settle = cityEase > 0.2 ? 8 : 3.4;
@@ -221,7 +257,11 @@ function Earth({
       if (!hand.active) return;
       const moved = hand.moved;
       hand.active = false;
-      if (moved > 12) hand.slowUntil = performance.now() + 2000;
+      if (moved > 12 && !hand.reported) {
+        hand.reported = true;
+        hand.slowUntil = performance.now() + 2000;
+        dragged.current();
+      }
     };
     const moveDrag = (event: PointerEvent) => {
       const hand = drag.current;
@@ -254,6 +294,7 @@ function Earth({
           hover.current.active = true;
           hover.current.point.copy(event.point);
           gl.domElement.style.cursor = "none";
+          if (focusRef.current?.close) return;
           const local = earth.current ? earth.current.worldToLocal(event.point.clone()) : event.point;
           const { lat, lon } = vecToLatLon(local);
           const image = day.image as CanvasImageSource & { width: number; height: number };
@@ -267,21 +308,27 @@ function Earth({
           gl.domElement.style.cursor = "";
         }}
         onPointerDown={(event: ThreeEvent<PointerEvent>) => {
-          if ((progressRef.current ?? 0) < 0.3 || drag.current.zooming) return;
+          if ((progressRef.current ?? 0) < 0.3 || drag.current.zooming || focusRef.current?.close) return;
           drag.current.active = true;
           drag.current.lastX = event.clientX;
           drag.current.lastY = event.clientY;
           drag.current.moved = 0;
+          drag.current.reported = false;
           sessionStorage.setItem("gaia-dragged", "1");
           gl.domElement.setPointerCapture(event.pointerId);
         }}
         onPointerUp={(event: ThreeEvent<PointerEvent>) => {
           if ((progressRef.current ?? 0) < 0.3) return;
-          if (!drag.current.active) return;
+          const placing = Boolean(focusRef.current?.close);
+          if (!placing && !drag.current.active) return;
           const moved = drag.current.moved;
           drag.current.active = false;
-          if (moved > 12) {
+          if (!placing && moved > 12) {
             drag.current.slowUntil = performance.now() + 2000;
+            if (!drag.current.reported) {
+              drag.current.reported = true;
+              dragged.current();
+            }
             return;
           }
           const local = earth.current
@@ -290,9 +337,7 @@ function Earth({
           const { lat, lon } = vecToLatLon(local);
           const image = day.image as CanvasImageSource & { width: number; height: number };
           if (!landPixel(image, lat, lon)) return;
-          const place = `How has the land at latitude ${lat.toFixed(2)}, longitude ${lon.toFixed(2)} changed since 2021?`;
-          startPageTransition();
-          router.push(`/analyze?draft=1&q=${encodeURIComponent(place)}`);
+          onLandClick(lat, lon);
         }}
       >
         <sphereGeometry args={[1, 256, 256]} />
@@ -304,6 +349,16 @@ function Earth({
       </mesh>
       <Atmosphere progressRef={progressRef} />
       <ContinentOutline outlineRef={outlineRef} map={coast} />
+      <group ref={pin} visible={false}>
+        <mesh position={[0, 0.045, 0]} raycast={() => null}>
+          <cylinderGeometry args={[0.004, 0.004, 0.09, 8]} />
+          <meshPhongMaterial color="#d5dde6" specular="#ffffff" shininess={80} />
+        </mesh>
+        <mesh position={[0, 0.098, 0]} raycast={() => null}>
+          <sphereGeometry args={[0.016, 20, 20]} />
+          <meshBasicMaterial color="#7dccff" />
+        </mesh>
+      </group>
     </group>
   );
 }
@@ -345,8 +400,13 @@ function ContinentOutline({ outlineRef, map }: { outlineRef: React.RefObject<num
   const fade = useRef(0);
   useFrame((_, delta) => {
     const id = outlineRef.current ?? 0;
-    const target = id > 0 ? 1 : 0;
-    fade.current += (target - fade.current) * (1 - Math.exp(-delta * 3.2));
+    if (id <= 0) {
+      fade.current = 0;
+      material.uniforms.uId.value = 0;
+      material.uniforms.uAlpha.value = 0;
+      return;
+    }
+    fade.current += (1 - fade.current) * (1 - Math.exp(-delta * 3.2));
     material.uniforms.uId.value = id;
     material.uniforms.uAlpha.value = fade.current;
   });
@@ -453,9 +513,11 @@ function SatelliteShape() {
 function SurfaceSatellite({
   progressRef,
   hover,
+  focusRef,
 }: {
   progressRef: React.RefObject<number>;
   hover: React.RefObject<{ active: boolean; point: THREE.Vector3 }>;
+  focusRef: React.RefObject<GlobeFocus>;
 }) {
   const group = useRef<THREE.Group>(null);
   const outward = useMemo(() => new THREE.Vector3(0, 0, 1), []);
@@ -467,8 +529,10 @@ function SurfaceSatellite({
     const hand = hover.current;
     if (!node || !hand) return;
     const progress = progressRef.current ?? 0;
-    const show = hand.active && progress >= 0.3 && progress < 0.5;
+    const close = Boolean(focusRef.current?.close);
+    const show = hand.active && progress >= 0.3 && (close || progress < 0.5);
     node.visible = show;
+    node.scale.setScalar(close ? 0.1 : 0.22);
     if (!show) return;
     const follow = 1 - Math.exp(-delta * 16);
     place.copy(hand.point).normalize().multiplyScalar(1.045);
@@ -480,66 +544,6 @@ function SurfaceSatellite({
   return (
     <group ref={group} visible={false} scale={0.22} raycast={() => null}>
       <SatelliteShape />
-    </group>
-  );
-}
-
-function OrbitSatellite({ progressRef }: { progressRef: React.RefObject<number> }) {
-  const group = useRef<THREE.Group>(null);
-  const body = useRef<THREE.Group>(null);
-  const bubble = useRef<HTMLDivElement>(null);
-  const until = useRef(0);
-  const [open, setOpen] = useState(false);
-
-  useFrame((state) => {
-    if (!group.current || !body.current) return;
-    const progress = progressRef.current ?? 0;
-    const fade = smoothstep(0.34, 0.38, progress) * (1 - smoothstep(0.5, 0.56, progress));
-    const t = state.clock.elapsedTime * 0.42;
-    const radius = 1.78;
-    group.current.position.set(Math.cos(t) * radius, Math.sin(t) * 0.34, Math.sin(t) * radius);
-    body.current.lookAt(0, 0, 0);
-    body.current.rotateX(0.4);
-    body.current.scale.setScalar(fade < 0.04 ? 0 : 0.22);
-    group.current.visible = fade > 0.04;
-    const node = bubble.current;
-    if (!node) return;
-    const remain = until.current - performance.now();
-    const opacity = remain <= 0 ? 0 : remain < 700 ? remain / 700 : Math.min(1, (2500 - remain) / 280);
-    node.style.opacity = String(opacity);
-  });
-
-  const reveal = (event: ThreeEvent<PointerEvent>) => {
-    event.stopPropagation();
-    until.current = performance.now() + 2500;
-    setOpen(true);
-  };
-
-  return (
-    <group ref={group} visible={false}>
-      <group
-        ref={body}
-        rotation={[0.15, 0.2, -0.42]}
-        onClick={reveal}
-        onPointerOver={() => {
-          document.body.style.cursor = "pointer";
-        }}
-        onPointerOut={() => {
-          document.body.style.cursor = "";
-        }}
-      >
-        <SatelliteShape />
-      </group>
-      {open && (
-        <Html position={[0, 0.36, 0]} center style={{ pointerEvents: "none" }} zIndexRange={[40, 0]}>
-          <div
-            ref={bubble}
-            className="w-[220px] rounded-2xl bg-[#071018]/90 px-3 py-2 text-[12px] leading-snug text-[#7dccff] opacity-0 shadow-lg"
-          >
-            We choose to do this not because it is easy but because we thought it would be.
-          </div>
-        </Html>
-      )}
     </group>
   );
 }
@@ -649,15 +653,25 @@ function EarthReady({ onReady }: { onReady?: () => void }) {
   return null;
 }
 
+export type TourAction = "drag" | "zoom" | "pin" | "analyze";
+
 export default function EarthCanvas({
   progressRef,
   onReady,
+  onTour,
+  allowZoomRef,
 }: {
   progressRef: React.RefObject<number>;
   onReady?: () => void;
+  onTour?: (action: TourAction) => void;
+  allowZoomRef?: React.RefObject<boolean>;
 }) {
   const hover = useRef({ active: false, point: new THREE.Vector3(0, 1, 0) });
   const outlineRef = useRef(0);
+  const focusRef = useRef<GlobeFocus>({ close: false, lat: 0, lon: 0, pin: null });
+  const [close, setClose] = useState(false);
+  const [pin, setPin] = useState<{ lat: number; lon: number } | null>(null);
+  const router = useRouter();
   const [continent, setContinent] = useState<Continent | null>(null);
   const [cardOpacity, setCardOpacity] = useState(0);
   const shown = useRef<string | null>(null);
@@ -665,6 +679,7 @@ export default function EarthCanvas({
   const hideTimer = useRef(0);
   const showTimer = useRef(0);
   const selectContinent = (next: Continent | null) => {
+    if (focusRef.current.close) return;
     const id = next?.id ?? null;
     if (id === shown.current) return;
     shown.current = id;
@@ -693,6 +708,40 @@ export default function EarthCanvas({
       setCardOpacity(1);
     }, 500);
   };
+  const pick = (lat: number, lon: number) => {
+    if (!focusRef.current.close) {
+      if (!allowZoomRef?.current) return;
+      focusRef.current = { close: true, lat, lon, pin: null };
+      setPin(null);
+      setClose(true);
+      outlineRef.current = 0;
+      shown.current = null;
+      window.clearTimeout(showTimer.current);
+      window.clearTimeout(hideTimer.current);
+      onTour?.("zoom");
+      return;
+    }
+    focusRef.current = { ...focusRef.current, pin: { lat, lon } };
+    setPin({ lat, lon });
+    onTour?.("pin");
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !focusRef.current.close) return;
+      focusRef.current = { close: false, lat: 0, lon: 0, pin: null };
+      setClose(false);
+      setPin(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const analyzePin = () => {
+    if (!pin) return;
+    const place = `How has the land at latitude ${pin.lat.toFixed(2)}, longitude ${pin.lon.toFixed(2)} changed since 2021?`;
+    onTour?.("analyze");
+    startPageTransition();
+    router.push(`/analyze?q=${encodeURIComponent(place)}`);
+  };
   return (
     <div className="absolute inset-0 z-[6]">
       <Canvas
@@ -709,16 +758,23 @@ export default function EarthCanvas({
         <directionalLight position={[5, 2.2, 4]} intensity={2.1} color="#fff6ea" />
         <directionalLight position={[-6, -2, -3]} intensity={0.35} color="#7eafff" />
         <SkyStars progressRef={progressRef} />
-        <OrbitSatellite progressRef={progressRef} />
-        <SurfaceSatellite progressRef={progressRef} hover={hover} />
+        <SurfaceSatellite progressRef={progressRef} hover={hover} focusRef={focusRef} />
         <Suspense fallback={null}>
-          <Earth progressRef={progressRef} hover={hover} onContinent={selectContinent} outlineRef={outlineRef} />
+          <Earth
+            progressRef={progressRef}
+            hover={hover}
+            onContinent={selectContinent}
+            outlineRef={outlineRef}
+            focusRef={focusRef}
+            onLandClick={pick}
+            onDragged={() => onTour?.("drag")}
+          />
           <EarthReady onReady={onReady} />
         </Suspense>
       </Canvas>
-      {continent && (
+      {continent && !close && (
         <aside
-          className="pointer-events-auto absolute left-[4vw] top-1/2 z-20 w-[min(260px,28vw)] -translate-y-1/2 rounded-2xl border border-white/15 bg-[#071018]/85 p-4 text-white backdrop-blur-sm transition-opacity duration-300"
+          className="pointer-events-auto absolute right-[6%] top-[18%] z-20 w-[min(260px,30vw)] border border-white/20 bg-[#05060f]/85 p-4 text-white transition-opacity duration-300"
           style={{ opacity: cardOpacity }}
         >
           <p className="text-[11px] uppercase tracking-[0.18em] text-[#7dccff]">{continent.name}</p>
@@ -726,10 +782,27 @@ export default function EarthCanvas({
           <Link
             onClick={() => startPageTransition()}
             href={`/explore?continent=${continent.id}`}
-            className="mt-3 inline-block rounded-full bg-[#7dccff] px-3 py-1.5 text-sm font-semibold text-[#071018]"
+            className="mt-3 inline-block text-sm text-[#7dccff] underline"
           >
             Explore {continent.name}
           </Link>
+        </aside>
+      )}
+      {close && (
+        <aside className="pointer-events-auto absolute right-[6vw] top-1/2 z-20 w-[min(280px,34vw)] -translate-y-1/2 border border-white/20 bg-[#05060f]/80 p-4 text-sm leading-relaxed text-white">
+          <p>Click esc to go back to the globe, or click to place a pin.</p>
+          {pin && (
+            <p className="mt-3 text-white/80">Pin placed at: longitude {pin.lon.toFixed(2)}, latitude {pin.lat.toFixed(2)}</p>
+          )}
+          {pin && (
+            <button
+              type="button"
+              onClick={analyzePin}
+              className="mt-4 border border-[#7dccff] px-4 py-2 text-sm text-[#7dccff]"
+            >
+              Analyze
+            </button>
+          )}
         </aside>
       )}
     </div>

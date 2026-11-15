@@ -89,6 +89,22 @@ input[type="range"] {
   animation: luna-roll 0.7s linear infinite;
 }
 
+.luna-hop {
+  animation: luna-hop 0.7s ease;
+}
+
+@keyframes luna-hop {
+  0% {
+    transform: translateY(0) rotate(-12deg);
+  }
+  40% {
+    transform: translateY(-16px) rotate(14deg);
+  }
+  100% {
+    transform: translateY(0) rotate(-6deg);
+  }
+}
+
 @keyframes luna-bob {
   0%,
   100% {
@@ -119,7 +135,8 @@ input[type="range"] {
 
 @media (prefers-reduced-motion: reduce) {
   .luna-bob,
-  .luna-roll {
+  .luna-roll,
+  .luna-hop {
     animation: none;
   }
 }

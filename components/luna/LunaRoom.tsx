@@ -90,8 +90,8 @@ export default function LunaRoom() {
   return (
     <div ref={roomRef} className="relative mx-auto flex min-h-screen w-full max-w-2xl flex-col px-5 pb-8 pt-24">
       <h1 className="flex items-center gap-3 text-2xl text-white">
-        <span ref={homeRef} className="inline-block h-[34px] w-[34px] shrink-0" />
         Luna
+        <span ref={homeRef} className="inline-block h-[34px] w-[34px] shrink-0" />
       </h1>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/70">
         Ask about gAIa, satellites, how land is used, or the environment. Luna keeps the thread you started on the home page.

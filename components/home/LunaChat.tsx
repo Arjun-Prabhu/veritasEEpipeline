@@ -81,8 +81,8 @@ export default function LunaChat() {
   return (
     <form ref={formRef} onSubmit={send} className="relative mt-5 rounded-2xl border border-white/70 p-4 text-left">
       <p className="flex items-center gap-2 text-[15px] text-white">
-        <span ref={homeRef} className="inline-block h-[30px] w-[30px] shrink-0" />
         Meet Luna
+        <span ref={homeRef} className="inline-block h-[30px] w-[30px] shrink-0" />
       </p>
       <p className="mt-2 min-h-12 text-[15px] leading-relaxed text-white/80">
         {busy || reply ? reply : "Ask about satellites, land use, or how the earth is changing."}

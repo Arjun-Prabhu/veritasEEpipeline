@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { reversePlace } from "@/lib/geocode";
 import { parseWithGemini } from "@/lib/gemini";
 import { parsePromptLocally, sanitizeParsed } from "@/lib/query";
 
@@ -15,10 +16,22 @@ export async function POST(request: Request) {
   try {
     const gemini = await parseWithGemini(prompt);
     const parsed = sanitizeParsed(gemini ?? parsePromptLocally(prompt), prompt);
+    const named = await reversePlace(parsed.latitude, parsed.longitude);
+    if (named) {
+      parsed.location = named.location;
+      parsed.region = named.region;
+      parsed.country = named.country;
+    }
     return NextResponse.json({ parsed, source: gemini ? "gemini" : "local" });
   } catch (error) {
     console.error(error);
     const parsed = sanitizeParsed(parsePromptLocally(prompt), prompt);
+    const named = await reversePlace(parsed.latitude, parsed.longitude);
+    if (named) {
+      parsed.location = named.location;
+      parsed.region = named.region;
+      parsed.country = named.country;
+    }
     return NextResponse.json({ parsed, source: "local" });
   }
 }

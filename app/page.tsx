@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import ScrollEarth from "@/components/home/ScrollEarth";
+import HomeJourney from "@/components/home/HomeJourney";
 
 export const metadata: Metadata = {
   title: "gAIa",
 };
 
 export default function HomePage() {
-  return <ScrollEarth />;
+  return <HomeJourney />;
 }

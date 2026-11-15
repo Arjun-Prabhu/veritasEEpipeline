@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import CompareStage from "@/components/analyze/CompareStage";
-import { PROMPT_CHIPS, caseById } from "@/lib/cases";
+import { caseById } from "@/lib/cases";
 import { cx } from "@/lib/format";
 import type { Analysis } from "@/lib/narrative";
 import type { ParsedQuery } from "@/lib/query";
@@ -17,8 +17,11 @@ const STEPS = [
   { id: "reading", label: "Writing the briefing" },
 ] as const;
 
+const EXAMPLE = "Analyze the change in New York in the last 5 years";
+
 export default function Analyzer() {
   const [prompt, setPrompt] = useState("");
+  const [hint, setHint] = useState("Search for an analysis");
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState("");
   const [parsed, setParsed] = useState<ParsedQuery | null>(null);
@@ -27,6 +30,35 @@ export default function Analyzer() {
   const [saved, setSaved] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (prompt) return;
+    let stopped = false;
+    let timer = 0;
+    const wait = (ms: number) =>
+      new Promise<void>((resolve) => {
+        timer = window.setTimeout(resolve, ms);
+      });
+    const play = async () => {
+      while (!stopped) {
+        setHint("Search for an analysis");
+        await wait(1400);
+        if (stopped) return;
+        setHint("");
+        for (let i = 1; i <= EXAMPLE.length; i += 1) {
+          if (stopped) return;
+          setHint(EXAMPLE.slice(0, i));
+          await wait(46);
+        }
+        await wait(1800);
+      }
+    };
+    void play();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [prompt]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -133,7 +165,7 @@ export default function Analyzer() {
               ref={inputRef}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="How has the land in New York City changed since 2021?"
+              placeholder={prompt ? "" : hint}
               className="absolute inset-[1.5px] z-[1] rounded-full border border-white/10 bg-[#05060f] px-5 text-sm text-ink outline-none placeholder:text-ink/35"
             />
           </div>
@@ -144,18 +176,6 @@ export default function Analyzer() {
           >
             {busy ? "Reading…" : "Read the land"}
           </button>
-        </div>
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-          {PROMPT_CHIPS.map((chip) => (
-            <button
-              key={chip.prompt}
-              type="button"
-              onClick={() => void run(chip.prompt)}
-              className="shrink-0 rounded-full border border-white/15 px-3 py-1.5 text-xs text-ink/80 hover:border-lime/60 hover:text-ink"
-            >
-              {chip.label}
-            </button>
-          ))}
         </div>
       </form>
 
@@ -207,6 +227,12 @@ function TypedBriefing({
     ...analysis.mitigation,
   ].join("\n");
   const [count, setCount] = useState(0);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const homeRef = useRef<HTMLSpanElement>(null);
+  const caretRef = useRef<HTMLSpanElement>(null);
+  const iconRef = useRef<HTMLImageElement>(null);
+  const arrived = useRef(false);
+  const typing = count < script.length;
 
   useEffect(() => {
     setCount(0);
@@ -215,9 +241,29 @@ function TypedBriefing({
       shown += 1;
       setCount(Math.min(script.length, shown));
       if (shown >= script.length) window.clearInterval(timer);
-    }, 36);
+    }, 42);
     return () => window.clearInterval(timer);
   }, [script]);
+
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const icon = iconRef.current;
+    const target = typing ? caretRef.current : homeRef.current;
+    if (!box || !icon || !target) return;
+    const place = () => {
+      const bounds = box.getBoundingClientRect();
+      const spot = target.getBoundingClientRect();
+      icon.style.left = `${spot.left - bounds.left}px`;
+      icon.style.top = `${spot.top - bounds.top}px`;
+      icon.style.width = typing ? "22px" : "30px";
+      icon.style.height = typing ? "22px" : "30px";
+    };
+    icon.style.transition = typing && arrived.current
+      ? "none"
+      : "left 0.55s cubic-bezier(.2,.8,.2,1), top 0.55s cubic-bezier(.15,1.4,.3,1), width 0.55s ease, height 0.55s ease";
+    arrived.current = typing;
+    place();
+  }, [typing, count]);
 
   let cursor = count;
   const take = (text: string) => {
@@ -231,19 +277,37 @@ function TypedBriefing({
   const future = take(analysis.future_predictions);
   const steps = analysis.mitigation.map((step) => take(step));
   const done = count >= script.length;
+  const caret = <span ref={caretRef} className="inline-block h-[22px] w-[22px] align-[-4px]" />;
+  const onHeadline = !done && headline.length < analysis.headline.length;
+  const onObserved = !done && !onHeadline && observed.length < analysis.observed_changes.length;
+  const onCauses = !done && !onHeadline && !onObserved && causes.length < analysis.root_causes.length;
+  const onFuture = !done && !onHeadline && !onObserved && !onCauses && future.length < analysis.future_predictions.length;
+  const stepIndex = steps.findIndex((item, itemIndex) => item.length < analysis.mitigation[itemIndex].length);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={boxRef} className="relative flex flex-col gap-4">
+      <p className="flex items-center gap-2 text-sm text-white">
+        Luna
+        <span ref={homeRef} className="inline-block h-[30px] w-[30px] shrink-0" />
+      </p>
+      <img
+        ref={iconRef}
+        src="/luna.png"
+        alt=""
+        width={30}
+        height={30}
+        className={`pointer-events-none absolute left-0 top-0 ${typing ? "luna-roll" : "luna-bob"}`}
+      />
       <div>
         <p className="text-[11px] uppercase tracking-[0.22em] text-foam">Briefing</p>
         <h2 className="mt-2 font-serif text-3xl leading-tight text-ink">
           {headline}
-          {!done && headline.length < analysis.headline.length && <span className="text-lime">▍</span>}
+          {onHeadline && caret}
         </h2>
       </div>
-      {observed && <Insight index="01" title="Observed changes" body={observed} />}
-      {causes && <Insight index="02" title="Root causes" body={causes} />}
-      {future && <Insight index="03" title="Future predictions" body={future} />}
+      {observed && <Insight index="01" title="Observed changes" body={observed} caret={onObserved ? caret : null} />}
+      {causes && <Insight index="02" title="Root causes" body={causes} caret={onCauses ? caret : null} />}
+      {future && <Insight index="03" title="Future predictions" body={future} caret={onFuture ? caret : null} />}
       {steps.some(Boolean) && (
         <div className="rounded-2xl border border-white/10 p-4">
           <p className="text-[11px] uppercase tracking-[0.18em] text-ink/45">04 · Actionable mitigation</p>
@@ -252,9 +316,7 @@ function TypedBriefing({
               step ? (
                 <li key={analysis.mitigation[index]}>
                   {step}
-                  {!done && index === steps.findIndex((item, itemIndex) => item.length < analysis.mitigation[itemIndex].length) && (
-                    <span className="text-lime">▍</span>
-                  )}
+                  {!done && index === stepIndex && caret}
                 </li>
               ) : null,
             )}
@@ -324,13 +386,26 @@ function Stepper({ phase }: { phase: Phase }) {
   );
 }
 
-function Insight({ index, title, body }: { index: string; title: string; body: string }) {
+function Insight({
+  index,
+  title,
+  body,
+  caret,
+}: {
+  index: string;
+  title: string;
+  body: string;
+  caret?: ReactNode;
+}) {
   return (
     <article className="rounded-2xl border border-white/10 p-4">
       <p className="text-[11px] uppercase tracking-[0.18em] text-ink/45">
         {index} · {title}
       </p>
-      <p className="mt-2 text-sm leading-relaxed text-ink/85">{body}</p>
+      <p className="mt-2 text-sm leading-relaxed text-ink/85">
+        {body}
+        {caret}
+      </p>
     </article>
   );
 }
