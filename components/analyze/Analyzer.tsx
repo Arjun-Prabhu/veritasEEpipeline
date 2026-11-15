@@ -25,12 +25,10 @@ export default function Analyzer() {
   const [imagery, setImagery] = useState<MLModelResponse | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [saved, setSaved] = useState(false);
-  const [quote, setQuote] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    setQuote(sessionStorage.getItem("gaia-quote") === "1");
     const params = new URLSearchParams(window.location.search);
     const caseId = params.get("case");
     const query = params.get("q");
@@ -126,22 +124,19 @@ export default function Analyzer() {
         }}
       >
         <label htmlFor="land-query" className="text-[11px] uppercase tracking-[0.22em] text-lime">
-          Land-change analyzer
+          Analyze
         </label>
-        {quote && (
-          <p className="mt-3 max-w-xl text-sm text-[#7dccff]">
-            We choose to do this not because it is easy but because we thought it would be.
-          </p>
-        )}
         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-          <input
-            id="land-query"
-            ref={inputRef}
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder="How has the land in New York City changed since 2021?"
-            className="h-12 flex-1 rounded-full border border-white/15 bg-white/5 px-5 text-sm text-ink outline-none placeholder:text-ink/35 focus:border-lime"
-          />
+          <div className="prompt-gun h-12 min-w-0 flex-1">
+            <input
+              id="land-query"
+              ref={inputRef}
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              placeholder="How has the land in New York City changed since 2021?"
+              className="absolute inset-[1.5px] z-[1] rounded-full border border-white/10 bg-[#05060f] px-5 text-sm text-ink outline-none placeholder:text-ink/35"
+            />
+          </div>
           <button
             type="submit"
             disabled={busy}
@@ -174,39 +169,7 @@ export default function Analyzer() {
         </div>
         <aside className="min-h-0 overflow-auto rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
           {busy && <Stepper phase={phase} />}
-          {analysis && (
-            <div className="flex flex-col gap-4">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.22em] text-foam">Briefing</p>
-                <h2 className="mt-2 font-serif text-3xl leading-tight text-ink">{analysis.headline}</h2>
-              </div>
-              <Insight index="01" title="Observed changes" body={analysis.observed_changes} />
-              <Insight index="02" title="Root causes" body={analysis.root_causes} />
-              <Insight index="03" title="Future predictions" body={analysis.future_predictions} />
-              <div className="rounded-2xl border border-white/10 p-4">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-ink/45">04 · Actionable mitigation</p>
-                <ol className="mt-3 list-decimal space-y-2 pl-4 text-sm leading-relaxed text-ink/85">
-                  {analysis.mitigation.map((step) => (
-                    <li key={step}>{step}</li>
-                  ))}
-                </ol>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={onSave}
-                  className="rounded-full border border-white/15 px-4 py-2 text-sm hover:bg-white/5"
-                >
-                  {saved ? "Saved on this device" : "Save this reading"}
-                </button>
-                {analysis.source === "local" && (
-                  <p className="max-w-xs text-xs leading-relaxed text-ink/45">
-                    Drafted from the land-cover numbers on this machine. Add GEMINI_API_KEY for a model-written reading.
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
+          {analysis && <TypedBriefing analysis={analysis} saved={saved} onSave={onSave} />}
           {!analysis && !busy && phase !== "error" && (
             <div className="flex h-full flex-col justify-center">
               <p className="text-[11px] uppercase tracking-[0.22em] text-ink/40">What comes back</p>
@@ -227,11 +190,102 @@ export default function Analyzer() {
   );
 }
 
+function TypedBriefing({
+  analysis,
+  saved,
+  onSave,
+}: {
+  analysis: Analysis;
+  saved: boolean;
+  onSave: () => void;
+}) {
+  const script = [
+    analysis.headline,
+    analysis.observed_changes,
+    analysis.root_causes,
+    analysis.future_predictions,
+    ...analysis.mitigation,
+  ].join("\n");
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    setCount(0);
+    let shown = 0;
+    const timer = window.setInterval(() => {
+      shown += script.length > 700 ? 3 : 2;
+      setCount(Math.min(script.length, shown));
+      if (shown >= script.length) window.clearInterval(timer);
+    }, 14);
+    return () => window.clearInterval(timer);
+  }, [script]);
+
+  let cursor = count;
+  const take = (text: string) => {
+    const slice = text.slice(0, cursor);
+    cursor = Math.max(0, cursor - text.length - 1);
+    return slice;
+  };
+  const headline = take(analysis.headline);
+  const observed = take(analysis.observed_changes);
+  const causes = take(analysis.root_causes);
+  const future = take(analysis.future_predictions);
+  const steps = analysis.mitigation.map((step) => take(step));
+  const done = count >= script.length;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className="text-[11px] uppercase tracking-[0.22em] text-foam">Briefing</p>
+        <h2 className="mt-2 font-serif text-3xl leading-tight text-ink">
+          {headline}
+          {!done && headline.length < analysis.headline.length && <span className="text-lime">▍</span>}
+        </h2>
+      </div>
+      {observed && <Insight index="01" title="Observed changes" body={observed} />}
+      {causes && <Insight index="02" title="Root causes" body={causes} />}
+      {future && <Insight index="03" title="Future predictions" body={future} />}
+      {steps.some(Boolean) && (
+        <div className="rounded-2xl border border-white/10 p-4">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-ink/45">04 · Actionable mitigation</p>
+          <ol className="mt-3 list-decimal space-y-2 pl-4 text-sm leading-relaxed text-ink/85">
+            {steps.map((step, index) =>
+              step ? (
+                <li key={analysis.mitigation[index]}>
+                  {step}
+                  {!done && index === steps.findIndex((item, itemIndex) => item.length < analysis.mitigation[itemIndex].length) && (
+                    <span className="text-lime">▍</span>
+                  )}
+                </li>
+              ) : null,
+            )}
+          </ol>
+        </div>
+      )}
+      {done && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={onSave}
+            className="rounded-full border border-white/15 px-4 py-2 text-sm hover:bg-white/5"
+          >
+            {saved ? "Saved on this device" : "Save this reading"}
+          </button>
+          {analysis.source === "local" && (
+            <p className="max-w-xs text-xs leading-relaxed text-ink/45">
+              Drafted from the land-cover numbers on this machine. Add GEMINI_API_KEY for a model-written reading.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function IdleStage({ phase, error }: { phase: Phase; error: string }) {
   return (
     <section className="flex h-full min-h-[420px] flex-col justify-end rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_30%_20%,rgba(125,204,255,0.16),transparent_34%),linear-gradient(160deg,#10182c,#05060f_58%)] p-6 md:p-10">
       <p className="text-[11px] uppercase tracking-[0.28em] text-white">
-        g<span className="text-[#7dccff]">AI</span>a
+        g<span className="italic text-[#3e8ec4]">AI</span>a
       </p>
       <h2 className="mt-4 max-w-xl font-serif text-5xl leading-[0.95] text-ink md:text-6xl">
         Name a place. Walk the years it has already lived.

@@ -10,6 +10,7 @@ export type CaseStudy = {
   prompt: string;
   scene: SceneId;
   t: number;
+  continent: "north-america" | "south-america" | "europe" | "africa" | "asia" | "australia" | "antarctica";
 };
 
 export const CASES: CaseStudy[] = [
@@ -23,6 +24,7 @@ export const CASES: CaseStudy[] = [
     prompt: "Show deforestation in the Amazon from 2018 to 2024",
     scene: "amazon",
     t: 0.85,
+    continent: "south-america",
   },
   {
     id: "nyc-expansion",
@@ -34,6 +36,7 @@ export const CASES: CaseStudy[] = [
     prompt: "How has the land in New York City changed from 2021 to 2026?",
     scene: "urban",
     t: 0.9,
+    continent: "north-america",
   },
   {
     id: "maldives-shore",
@@ -45,6 +48,7 @@ export const CASES: CaseStudy[] = [
     prompt: "Are the Maldives losing shoreline between 2016 and 2026?",
     scene: "coast",
     t: 0.8,
+    continent: "asia",
   },
   {
     id: "paradise-fire",
@@ -56,6 +60,7 @@ export const CASES: CaseStudy[] = [
     prompt: "How did wildfire reshape the land around Paradise, California from 2018 to 2025?",
     scene: "wildfire",
     t: 0.72,
+    continent: "north-america",
   },
   {
     id: "dubai-coast",
@@ -67,6 +72,7 @@ export const CASES: CaseStudy[] = [
     prompt: "Track Dubai's coastal growth from 2015 to 2026",
     scene: "desert",
     t: 0.88,
+    continent: "asia",
   },
   {
     id: "nile-farms",
@@ -78,6 +84,7 @@ export const CASES: CaseStudy[] = [
     prompt: "How have farms along the Nile changed since 2019?",
     scene: "agriculture",
     t: 0.7,
+    continent: "africa",
   },
 ];
 

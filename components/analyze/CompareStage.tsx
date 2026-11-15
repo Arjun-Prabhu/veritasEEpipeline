@@ -56,7 +56,13 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
             {formatCoord(imagery.latitude, imagery.longitude)}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col items-end gap-2 self-start">
+          {[imagery.region, imagery.country].filter(Boolean).length > 0 && (
+            <p className="text-right text-[11px] tracking-wide text-ink/50">
+              {[imagery.region, imagery.country].filter(Boolean).join(", ")}
+            </p>
+          )}
+          <div className="flex items-center gap-2">
           <button
             type="button"
             aria-pressed={maskOn}
@@ -77,6 +83,7 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
               {playing ? "Pause years" : "Play years"}
             </button>
           )}
+          </div>
         </div>
       </div>
 

@@ -21,6 +21,8 @@ export interface MLModelRequest {
   /** Optional WGS84 center. The mock uses it for the map pin. */
   latitude?: number;
   longitude?: number;
+  region?: string;
+  country?: string;
 }
 
 /** Percent of the analyzed tile. Values are 0–100 and should sum to ~100. */
@@ -53,6 +55,8 @@ export interface MLModelResponse {
   start_year: number;
   end_year: number;
   focus_area: string;
+  region?: string;
+  country?: string;
   /** Provider label so the UI can say whether tiles are simulated. */
   provider: "mock" | "remote";
   frames: YearImagery[];
@@ -139,6 +143,8 @@ export function assertMLModelResponse(data: unknown): MLModelResponse {
     start_year: numberOr(record.start_year, frames[0].year),
     end_year: numberOr(record.end_year, frames[frames.length - 1].year),
     focus_area: String(record.focus_area ?? "general land use"),
+    region: typeof record.region === "string" ? record.region : "",
+    country: typeof record.country === "string" ? record.country : "",
     provider: record.provider === "mock" ? "mock" : "remote",
     frames,
   };
@@ -152,6 +158,8 @@ export function requestFromParsed(parsed: ParsedQuery): MLModelRequest {
     focus_area: parsed.focus_area,
     latitude: parsed.latitude,
     longitude: parsed.longitude,
+    region: parsed.region,
+    country: parsed.country,
   };
 }
 
@@ -222,6 +230,8 @@ function buildMock(request: MLModelRequest): MLModelResponse {
     start_year: years[0],
     end_year: years[years.length - 1],
     focus_area: request.focus_area,
+    region: request.region,
+    country: request.country,
     provider: "mock",
     frames,
   };

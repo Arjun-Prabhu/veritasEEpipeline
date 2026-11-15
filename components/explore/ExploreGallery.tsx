@@ -3,14 +3,25 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CASES } from "@/lib/cases";
+import { CONTINENTS, type ContinentId } from "@/lib/continents";
 import { deleteReport, loadReports, type SavedReport } from "@/lib/storage";
 
 export default function ExploreGallery() {
   const [saved, setSaved] = useState<SavedReport[]>([]);
+  const [continent, setContinent] = useState<(typeof CONTINENTS)[number] | null>(null);
 
   useEffect(() => {
     setSaved(loadReports());
+    const id = new URLSearchParams(window.location.search).get("continent") as ContinentId | null;
+    setContinent(CONTINENTS.find((item) => item.id === id) ?? null);
   }, []);
+
+  const studies = continent
+    ? [
+        ...CASES.filter((item) => item.continent === continent.id),
+        ...CASES.filter((item) => item.continent !== continent.id),
+      ]
+    : CASES;
 
   return (
     <main className="mx-auto max-w-6xl px-5 pb-24 pt-28">
@@ -19,11 +30,13 @@ export default function ExploreGallery() {
         Places already in motion.
       </h1>
       <p className="mt-4 max-w-xl text-sm leading-relaxed text-ink/70 md:text-base">
-        Open a finished example and gAIa will run it. Readings you save in the analyzer stay on this device.
+        {continent
+          ? continent.blurb
+          : "Open a finished example and gAIa will run it. Readings you save in analyze stay on this device."}
       </p>
 
       <div className="mt-10 grid gap-4 md:grid-cols-2">
-        {CASES.map((item, index) => (
+        {studies.map((item, index) => (
           <Link
             key={item.id}
             href={`/analyze?case=${item.id}`}
@@ -42,7 +55,7 @@ export default function ExploreGallery() {
               </p>
               <h2 className="mt-2 font-serif text-3xl text-ink">{item.title}</h2>
               <p className="mt-2 text-sm leading-relaxed text-ink/70">{item.summary}</p>
-              <span className="mt-4 text-sm text-lime">Open in the analyzer</span>
+              <span className="mt-4 text-sm text-lime">Open in analyze</span>
             </div>
           </Link>
         ))}
@@ -52,7 +65,7 @@ export default function ExploreGallery() {
         <h2 className="font-serif text-3xl text-ink">Saved on this device</h2>
         {saved.length === 0 ? (
           <p className="mt-3 max-w-lg text-sm text-ink/60">
-            Nothing saved yet. Run a reading in the analyzer and keep it here for the next visit.
+            Nothing saved yet. Run a reading in analyze and keep it here for the next visit.
           </p>
         ) : (
           <ul className="mt-5 grid gap-3">

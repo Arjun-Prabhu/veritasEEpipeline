@@ -7,7 +7,7 @@ import { cx } from "@/lib/format";
 
 const LINKS = [
   { href: "/", label: "Home" },
-  { href: "/analyze", label: "Analyzer" },
+  { href: "/analyze", label: "Analyze" },
   { href: "/explore", label: "Explore" },
 ];
 
@@ -36,9 +36,9 @@ export default function Nav() {
   return (
     <header className="pointer-events-none fixed inset-x-0 top-0 z-50 flex items-center justify-between px-4 py-4 md:px-6">
       <Link href="/" className="pointer-events-auto text-[12px] tracking-[0.18em] text-white/80">
-        g<span className="text-[#7dccff]">AI</span>a
+        g<span className="italic text-[#3e8ec4]">AI</span>a
       </Link>
-      <nav className="pointer-events-auto flex items-center gap-3 text-[12px] text-white/70 md:gap-5">
+      <nav className="pointer-events-auto flex items-center gap-4 text-[15px] text-white/70 md:gap-6">
         {LINKS.map((link) => {
           const active = pathname === link.href;
           return (
@@ -46,9 +46,13 @@ export default function Nav() {
               key={link.href}
               href={link.href}
               aria-current={active ? "page" : undefined}
-              className={cx("transition hover:text-white", active && "text-white")}
+              className={cx(
+                "group relative py-1 transition duration-500 hover:scale-110 hover:text-white",
+                active && "text-white",
+              )}
             >
               {link.label}
+              <span className="absolute bottom-0 left-0 h-px w-full origin-left scale-x-0 bg-white/80 transition-transform duration-500 ease-out group-hover:scale-x-100" />
             </Link>
           );
         })}

@@ -7,6 +7,8 @@ export type ParsedQuery = {
   focus_area: string;
   latitude: number;
   longitude: number;
+  region?: string;
+  country?: string;
 };
 
 const CURRENT_YEAR = 2026;
@@ -88,6 +90,8 @@ export function sanitizeParsed(raw: Partial<ParsedQuery>, prompt: string): Parse
     focus_area: (raw.focus_area || local.focus_area).trim() || local.focus_area,
     latitude: coords.lat,
     longitude: coords.lon,
+    region: typeof raw.region === "string" ? raw.region.trim() : "",
+    country: typeof raw.country === "string" ? raw.country.trim() : "",
   };
 }
 

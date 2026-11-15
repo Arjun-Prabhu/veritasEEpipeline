@@ -16,7 +16,7 @@ export async function parseWithGemini(prompt: string): Promise<Partial<ParsedQue
   if (!ai) return null;
   const response = await ai.models.generateContent({
     model: MODEL,
-    contents: `Extract a geospatial land-change query from the user. The present year is 2026. If they give no timeframe, set start_year to 2021 and end_year to 2026. If they give one year with "since" or "from", use it as start_year and 2026 as end_year. location is a place name, not the whole sentence. If the prompt includes latitude and longitude, those numbers are a click on the globe: set latitude and longitude to those exact values, and set location to the city or town at that point (a neighborhood only if it is inside a named city). Never put the raw numbers in location. focus_area is a short phrase such as "deforestation", "urban development", "coastal change", "agriculture", "wildfire recovery", or "general land use".
+    contents: `Extract a geospatial land-change query from the user. The present year is 2026. If they give no timeframe, set start_year to 2021 and end_year to 2026. If they give one year with "since" or "from", use it as start_year and 2026 as end_year. location is the city or town, not the whole sentence. Convert that city or town into latitude and longitude. If the prompt already includes latitude and longitude, keep those exact numbers and set location to the city or town at that point. Never put the raw numbers in location. region is the state, province, or equivalent administrative area, such as Michigan. country is the country, such as United States. If the place has no state or province, leave region empty. focus_area is a short phrase such as "deforestation", "urban development", "coastal change", "agriculture", "wildfire recovery", or "general land use".
 
 User prompt:
 ${prompt}`,
@@ -32,8 +32,10 @@ ${prompt}`,
           focus_area: { type: Type.STRING },
           latitude: { type: Type.NUMBER },
           longitude: { type: Type.NUMBER },
+          region: { type: Type.STRING },
+          country: { type: Type.STRING },
         },
-        required: ["location", "start_year", "end_year", "focus_area", "latitude", "longitude"],
+        required: ["location", "start_year", "end_year", "focus_area", "latitude", "longitude", "region", "country"],
       },
     },
   });

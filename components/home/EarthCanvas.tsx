@@ -2,10 +2,12 @@
 
 import { Html, useTexture } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
+import { continentAt, type Continent } from "@/lib/continents";
 import { startPageTransition } from "@/lib/transition";
 
 function smoothstep(edge0: number, edge1: number, x: number) {
@@ -36,12 +38,31 @@ function latLonToVec(lat: number, lon: number, radius: number) {
   );
 }
 
+function landPixel(image: CanvasImageSource & { width: number; height: number }, lat: number, lon: number) {
+  const canvas = landPixel.canvas ?? (landPixel.canvas = document.createElement("canvas"));
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx || !image.width || !image.height) return false;
+  const x = Math.min(image.width - 1, Math.max(0, Math.floor(((lon + 180) / 360) * image.width)));
+  const y = Math.min(image.height - 1, Math.max(0, Math.floor(((90 - lat) / 180) * image.height)));
+  ctx.drawImage(image, x, y, 1, 1, 0, 0, 1, 1);
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  const ocean = b > r + 18 && b > g + 18 && b > 35;
+  return !ocean;
+}
+landPixel.canvas = null as HTMLCanvasElement | null;
+
 function Earth({
   progressRef,
   hover,
+  onContinent,
+  outlineRef,
 }: {
   progressRef: React.RefObject<number>;
   hover: React.RefObject<{ active: boolean; point: THREE.Vector3 }>;
+  onContinent: (continent: Continent | null) => void;
+  outlineRef: React.RefObject<number>;
 }) {
   const router = useRouter();
   const earth = useRef<THREE.Group>(null);
@@ -98,7 +119,11 @@ function Earth({
     }
     return { spin, pitch };
   }, []);
-  const [day, cloudMap] = useTexture(["/textures/earth_day.jpg", "/textures/earth_clouds.png"]);
+  const [day, cloudMap, coast] = useTexture([
+    "/textures/earth_day.jpg",
+    "/textures/earth_clouds.png",
+    "/textures/coast-3.png",
+  ]);
   const gl = useThree((state) => state.gl);
 
   if (!day.userData.configured) {
@@ -112,6 +137,12 @@ function Earth({
     cloudMap.colorSpace = THREE.SRGBColorSpace;
     cloudMap.anisotropy = gl.capabilities.getMaxAnisotropy();
     cloudMap.needsUpdate = true;
+    coast.colorSpace = THREE.NoColorSpace;
+    coast.generateMipmaps = false;
+    coast.minFilter = THREE.NearestFilter;
+    coast.magFilter = THREE.NearestFilter;
+    coast.wrapS = THREE.RepeatWrapping;
+    coast.needsUpdate = true;
   }
 
   const poses = useMemo(() => {
@@ -226,9 +257,15 @@ function Earth({
           hover.current.active = true;
           hover.current.point.copy(event.point);
           gl.domElement.style.cursor = "none";
+          const local = earth.current ? earth.current.worldToLocal(event.point.clone()) : event.point;
+          const { lat, lon } = vecToLatLon(local);
+          const image = day.image as CanvasImageSource & { width: number; height: number };
+          const land = landPixel(image, lat, lon);
+          onContinent(land ? continentAt(lat, lon) : null);
         }}
         onPointerOut={() => {
           if (hover.current) hover.current.active = false;
+          onContinent(null);
           if (drag.current.active) return;
           gl.domElement.style.cursor = "";
         }}
@@ -254,6 +291,8 @@ function Earth({
             ? earth.current.worldToLocal(event.point.clone())
             : event.point;
           const { lat, lon } = vecToLatLon(local);
+          const image = day.image as CanvasImageSource & { width: number; height: number };
+          if (!landPixel(image, lat, lon)) return;
           const place = `How has the land at latitude ${lat.toFixed(2)}, longitude ${lon.toFixed(2)} changed since 2021?`;
           startPageTransition();
           router.push(`/analyze?draft=1&q=${encodeURIComponent(place)}`);
@@ -267,7 +306,58 @@ function Earth({
         <meshPhongMaterial map={cloudMap} transparent opacity={0.38} depthWrite={false} />
       </mesh>
       <Atmosphere progressRef={progressRef} />
+      <ContinentOutline outlineRef={outlineRef} map={coast} />
     </group>
+  );
+}
+
+function ContinentOutline({ outlineRef, map }: { outlineRef: React.RefObject<number>; map: THREE.Texture }) {
+  const material = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        uniforms: { uId: { value: 0 }, uAlpha: { value: 0 }, uMap: { value: map } },
+        vertexShader: `
+          varying vec3 vPos;
+          varying vec2 vUv;
+          void main() {
+            vPos = position;
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          varying vec3 vPos;
+          varying vec2 vUv;
+          uniform float uId;
+          uniform float uAlpha;
+          uniform sampler2D uMap;
+          void main() {
+            if (uAlpha < 0.02 || uId < 0.5) discard;
+            vec4 coast = texture2D(uMap, vUv);
+            if (coast.a < 0.2) discard;
+            if (abs(coast.r * 7.0 - uId) > 0.6) discard;
+            gl_FragColor = vec4(0.55, 0.84, 1.0, coast.a * uAlpha);
+          }
+        `,
+        transparent: true,
+        depthWrite: false,
+      }),
+    [map],
+  );
+
+  const fade = useRef(0);
+  useFrame((_, delta) => {
+    const id = outlineRef.current ?? 0;
+    const target = id > 0 ? 1 : 0;
+    fade.current += (target - fade.current) * (1 - Math.exp(-delta * 3.2));
+    material.uniforms.uId.value = id;
+    material.uniforms.uAlpha.value = fade.current;
+  });
+
+  return (
+    <mesh scale={1.01} material={material} raycast={() => null}>
+      <sphereGeometry args={[1, 64, 64]} />
+    </mesh>
   );
 }
 
@@ -288,8 +378,8 @@ function Atmosphere({ progressRef }: { progressRef: React.RefObject<number> }) {
           uniform float uAlpha;
           varying vec3 vNormal;
           void main() {
-            float fresnel = pow(0.68 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.4);
-            gl_FragColor = vec4(0.45, 0.72, 1.0, uAlpha) * fresnel;
+            float fresnel = pow(0.42 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 1.35);
+            gl_FragColor = vec4(0.25, 0.62, 1.0, uAlpha) * fresnel;
           }
         `,
         blending: THREE.AdditiveBlending,
@@ -304,14 +394,12 @@ function Atmosphere({ progressRef }: { progressRef: React.RefObject<number> }) {
     const progress = progressRef.current ?? 0;
     const zoomIn = progress >= 0.5 ? 1 : smoothstep(0.4, 0.5, progress);
     const cityEase = zoomIn * zoomIn * (3 - 2 * zoomIn);
-    const camZ = state.camera.position.length();
-    const scale = Math.min(1.06, Math.max(1.02, camZ - 0.045));
-    if (mesh.current) mesh.current.scale.setScalar(scale);
-    material.uniforms.uAlpha.value = 0.36 * (1 - cityEase * 0.94);
+    if (mesh.current) mesh.current.scale.setScalar(1.045);
+    material.uniforms.uAlpha.value = 0.95 * (1 - cityEase * 0.94);
   });
 
   return (
-    <mesh ref={mesh} scale={1.06} material={material} raycast={() => null}>
+    <mesh ref={mesh} scale={1.045} material={material} raycast={() => null}>
       <sphereGeometry args={[1, 64, 64]} />
     </mesh>
   );
@@ -323,30 +411,12 @@ function starTexture() {
   canvas.height = 128;
   const ctx = canvas.getContext("2d");
   if (!ctx) return new THREE.Texture();
-  const glow = ctx.createRadialGradient(64, 64, 0, 64, 64, 62);
-  glow.addColorStop(0, "rgba(255,255,255,1)");
-  glow.addColorStop(0.08, "rgba(255,255,255,0.95)");
-  glow.addColorStop(0.18, "rgba(210,230,255,0.45)");
-  glow.addColorStop(0.45, "rgba(150,190,255,0.08)");
-  glow.addColorStop(1, "rgba(255,255,255,0)");
+  const glow = ctx.createRadialGradient(64, 64, 0, 64, 64, 18);
+  glow.addColorStop(0, "rgba(255,248,232,1)");
+  glow.addColorStop(0.35, "rgba(255,236,204,0.85)");
+  glow.addColorStop(1, "rgba(255,236,204,0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, 128, 128);
-  ctx.strokeStyle = "rgba(255,255,255,0.9)";
-  ctx.lineWidth = 1.4;
-  ctx.beginPath();
-  ctx.moveTo(64, 2);
-  ctx.lineTo(64, 126);
-  ctx.moveTo(2, 64);
-  ctx.lineTo(126, 64);
-  ctx.stroke();
-  ctx.globalAlpha = 0.55;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(20, 20);
-  ctx.lineTo(108, 108);
-  ctx.moveTo(108, 20);
-  ctx.lineTo(20, 108);
-  ctx.stroke();
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
@@ -419,20 +489,21 @@ function SurfaceSatellite({
 
 function OrbitSatellite({ progressRef }: { progressRef: React.RefObject<number> }) {
   const group = useRef<THREE.Group>(null);
+  const body = useRef<THREE.Group>(null);
   const bubble = useRef<HTMLDivElement>(null);
   const until = useRef(0);
   const [open, setOpen] = useState(false);
 
   useFrame((state) => {
-    if (!group.current) return;
+    if (!group.current || !body.current) return;
     const progress = progressRef.current ?? 0;
     const fade = smoothstep(0.34, 0.38, progress) * (1 - smoothstep(0.5, 0.56, progress));
     const t = state.clock.elapsedTime * 0.42;
     const radius = 1.78;
     group.current.position.set(Math.cos(t) * radius, Math.sin(t) * 0.34, Math.sin(t) * radius);
-    group.current.lookAt(0, 0, 0);
-    group.current.rotateX(0.4);
-    group.current.scale.setScalar(fade < 0.04 ? 0 : 0.22);
+    body.current.lookAt(0, 0, 0);
+    body.current.rotateX(0.4);
+    body.current.scale.setScalar(fade < 0.04 ? 0 : 0.22);
     group.current.visible = fade > 0.04;
     const node = bubble.current;
     if (!node) return;
@@ -443,7 +514,6 @@ function OrbitSatellite({ progressRef }: { progressRef: React.RefObject<number> 
 
   const reveal = (event: ThreeEvent<PointerEvent>) => {
     event.stopPropagation();
-    sessionStorage.setItem("gaia-quote", "1");
     until.current = performance.now() + 2500;
     setOpen(true);
   };
@@ -451,6 +521,7 @@ function OrbitSatellite({ progressRef }: { progressRef: React.RefObject<number> 
   return (
     <group ref={group} visible={false}>
       <group
+        ref={body}
         rotation={[0.15, 0.2, -0.42]}
         onClick={reveal}
         onPointerOver={() => {
@@ -463,7 +534,7 @@ function OrbitSatellite({ progressRef }: { progressRef: React.RefObject<number> 
         <SatelliteShape />
       </group>
       {open && (
-        <Html position={[0.42, 0.34, 0]} style={{ pointerEvents: "none" }} zIndexRange={[40, 0]}>
+        <Html position={[0, 0.36, 0]} center style={{ pointerEvents: "none" }} zIndexRange={[40, 0]}>
           <div
             ref={bubble}
             className="w-[220px] rounded-2xl bg-[#071018]/90 px-3 py-2 text-[12px] leading-snug text-[#7dccff] opacity-0 shadow-lg"
@@ -564,10 +635,56 @@ function SkyStars({ progressRef }: { progressRef: React.RefObject<number> }) {
   );
 }
 
+const CONTINENT_IDS: Record<Continent["id"], number> = {
+  "north-america": 1,
+  "south-america": 2,
+  europe: 3,
+  africa: 4,
+  asia: 5,
+  australia: 6,
+  antarctica: 7,
+};
+
 export default function EarthCanvas({ progressRef }: { progressRef: React.RefObject<number> }) {
   const hover = useRef({ active: false, point: new THREE.Vector3(0, 1, 0) });
+  const outlineRef = useRef(0);
+  const [continent, setContinent] = useState<Continent | null>(null);
+  const [cardOpacity, setCardOpacity] = useState(0);
+  const shown = useRef<string | null>(null);
+  const visible = useRef(false);
+  const hideTimer = useRef(0);
+  const showTimer = useRef(0);
+  const selectContinent = (next: Continent | null) => {
+    const id = next?.id ?? null;
+    if (id === shown.current) return;
+    shown.current = id;
+    window.clearTimeout(hideTimer.current);
+    window.clearTimeout(showTimer.current);
+    if (!next) {
+      if (!visible.current) return;
+      hideTimer.current = window.setTimeout(() => {
+        visible.current = false;
+        setCardOpacity(0);
+        outlineRef.current = 0;
+        window.setTimeout(() => {
+          if (shown.current === null) setContinent(null);
+        }, 400);
+      }, 2000);
+      return;
+    }
+    visible.current = false;
+    outlineRef.current = 0;
+    setCardOpacity(0);
+    showTimer.current = window.setTimeout(() => {
+      if (shown.current !== next.id) return;
+      visible.current = true;
+      outlineRef.current = CONTINENT_IDS[next.id];
+      setContinent(next);
+      setCardOpacity(1);
+    }, 500);
+  };
   return (
-    <div className="absolute inset-0 z-0">
+    <div className="absolute inset-0 z-[6]">
       <Canvas
         camera={{ position: [0, 0.22, 3.65], fov: 32, near: 0.1, far: 100 }}
         dpr={[1, 2]}
@@ -585,9 +702,25 @@ export default function EarthCanvas({ progressRef }: { progressRef: React.RefObj
         <OrbitSatellite progressRef={progressRef} />
         <SurfaceSatellite progressRef={progressRef} hover={hover} />
         <Suspense fallback={null}>
-          <Earth progressRef={progressRef} hover={hover} />
+          <Earth progressRef={progressRef} hover={hover} onContinent={selectContinent} outlineRef={outlineRef} />
         </Suspense>
       </Canvas>
+      {continent && (
+        <aside
+          className="pointer-events-auto absolute left-[4vw] top-1/2 z-20 w-[min(260px,28vw)] -translate-y-1/2 rounded-2xl border border-white/15 bg-[#071018]/85 p-4 text-white backdrop-blur-sm transition-opacity duration-300"
+          style={{ opacity: cardOpacity }}
+        >
+          <p className="text-[11px] uppercase tracking-[0.18em] text-[#7dccff]">{continent.name}</p>
+          <p className="mt-2 text-sm leading-relaxed text-white/85">{continent.blurb}</p>
+          <Link
+            onClick={() => startPageTransition()}
+            href={`/explore?continent=${continent.id}`}
+            className="mt-3 inline-block rounded-full bg-[#7dccff] px-3 py-1.5 text-sm font-semibold text-[#071018]"
+          >
+            Explore {continent.name}
+          </Link>
+        </aside>
+      )}
     </div>
   );
 }

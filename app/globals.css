@@ -44,3 +44,37 @@ html.lenis body {
 input[type="range"] {
   accent-color: #7dccff;
 }
+
+.prompt-gun {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+}
+
+.prompt-gun::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 220%;
+  height: 220%;
+  transform: translate(-50%, -50%);
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 70%,
+    rgba(125, 204, 255, 0.25) 82%,
+    #ffffff 92%,
+    #7dccff 97%,
+    transparent 100%
+  );
+  animation: prompt-gun 2.4s linear infinite;
+}
+
+@keyframes prompt-gun {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
