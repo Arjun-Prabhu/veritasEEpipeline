@@ -1,0 +1,16 @@
+# Python dependencies
+cv2
+concurrent.futures
+xarray.ufuncs
+numpy
+earthengine-api
+PIL
+ultralytics
+types
+pytest
+torch
+pathlib
+logging
+json
+re
+importlib
