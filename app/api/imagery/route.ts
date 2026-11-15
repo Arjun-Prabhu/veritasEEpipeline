@@ -20,6 +20,7 @@ export async function POST(request: Request) {
       imagery.longitude,
       imagery.frames.map((frame) => frame.year),
     );
+    if (!photos) return NextResponse.json({ imagery });
     const frames = imagery.frames.flatMap((frame) => {
       const imageUrl = photos[frame.year];
       if (!imageUrl) return [];

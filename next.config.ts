@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ["sharp"],
+  serverExternalPackages: ["sharp", "@google/earthengine"],
   outputFileTracingRoot: path.join(process.cwd()),
 };
 

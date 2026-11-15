@@ -2,14 +2,21 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { earthEngineConfigured, pullSatelliteImagesInNode } from "@/lib/earthNode";
 
-const PYTHON_CANDIDATES = ["/opt/miniconda3/bin/python3", "python3"];
+const PYTHON_CANDIDATES = ["/opt/miniconda3/bin/python3"];
 
 function pythonBin() {
-  return PYTHON_CANDIDATES.find((bin) => bin === "python3" || existsSync(bin)) ?? "python3";
+  return PYTHON_CANDIDATES.find((bin) => existsSync(bin)) ?? null;
 }
 
 export function pullSatelliteImages(lat: number, lon: number, years: number[]) {
+  const python = pythonBin();
+  if (!python) {
+    if (!earthEngineConfigured()) return Promise.resolve(null);
+    return pullSatelliteImagesInNode(lat, lon, years);
+  }
+
   const id = createHash("sha1")
     .update(`${lat.toFixed(4)}:${lon.toFixed(4)}:${years.join(",")}`)
     .digest("hex")
@@ -23,7 +30,7 @@ export function pullSatelliteImages(lat: number, lon: number, years: number[]) {
 
   return new Promise<Record<number, string>>((resolve, reject) => {
     const pull = spawn(
-      pythonBin(),
+      python,
       [script, "--lat", String(lat), "--lon", String(lon), "--years", years.join(","), "--out", out],
       { cwd: process.cwd() },
     );
