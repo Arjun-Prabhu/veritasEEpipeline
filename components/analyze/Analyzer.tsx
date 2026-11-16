@@ -207,10 +207,10 @@ export default function Analyzer() {
             <IdleStage phase={phase} error={error} />
           )}
         </div>
-        <aside className="flex min-h-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
+        <aside className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
           {busy && <Stepper phase={phase} />}
           {analysis && (
-            <div className="briefing-scroll h-[min(82vh,820px)] pr-3">
+            <div>
             <TypedBriefing
               analysis={analysis}
               location={imagery?.location || parsed?.location || ""}
@@ -294,7 +294,7 @@ function TypedBriefing({
       shown += 1;
       setCount(Math.min(script.length, shown));
       if (shown >= script.length) window.clearInterval(timer);
-    }, 42 / 1.25);
+    }, 12);
     return () => window.clearInterval(timer);
   }, [script]);
 
@@ -352,7 +352,7 @@ function TypedBriefing({
             window.clearInterval(timer);
             resolve();
           }
-        }, 42 / 1.25);
+        }, 12);
       });
     } catch {
       setTurns((current) => {

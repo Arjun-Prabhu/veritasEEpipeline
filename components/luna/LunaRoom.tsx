@@ -92,7 +92,7 @@ export default function LunaRoom() {
             saveLunaThread([...next, { role: "luna", text: message }]);
             resolve();
           }
-        }, 42 / 1.25);
+        }, 12);
       });
     } catch {
       const failed = [...next, { role: "luna" as const, text: "Luna could not reach the model." }];

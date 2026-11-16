@@ -22,35 +22,6 @@ body {
   min-height: 100%;
 }
 
-.briefing-scroll {
-  overflow-y: scroll;
-  scrollbar-gutter: stable;
-  scrollbar-width: auto;
-  scrollbar-color: #7dccff #163044;
-}
-
-.briefing-scroll::-webkit-scrollbar {
-  -webkit-appearance: none;
-  width: 14px;
-  display: block;
-}
-
-.briefing-scroll::-webkit-scrollbar-track {
-  background: #163044;
-  border-radius: 999px;
-}
-
-.briefing-scroll::-webkit-scrollbar-thumb {
-  background: #7dccff;
-  border-radius: 999px;
-  min-height: 48px;
-  border: 3px solid #163044;
-}
-
-.briefing-scroll::-webkit-scrollbar-thumb:window-inactive {
-  background: #7dccff;
-}
-
 ::selection {
   background: #7dccff;
   color: #071018;
