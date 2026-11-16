@@ -207,7 +207,7 @@ export default function Analyzer() {
             <IdleStage phase={phase} error={error} />
           )}
         </div>
-        <aside className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
+        <aside className="h-auto max-h-none overflow-visible rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
           {busy && <Stepper phase={phase} />}
           {analysis && (
             <TypedBriefing
