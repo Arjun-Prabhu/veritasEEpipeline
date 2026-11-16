@@ -165,7 +165,7 @@ export default function Analyzer() {
   const busy = phase === "parsing" || phase === "imaging" || phase === "reading";
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-[1440px] flex-col px-4 pb-16 pt-24 lg:px-6">
+    <main className="mx-auto max-w-[1440px] px-4 pb-16 pt-24 lg:px-6">
       <form
         className="shrink-0"
         onSubmit={(event) => {
@@ -197,7 +197,7 @@ export default function Analyzer() {
         </div>
       </form>
 
-      <div className="mt-4 grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.8fr)]">
+      <div className="mt-4 grid items-start gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.8fr)]">
         <div className="min-h-0">
           {imagery ? (
             <CompareStage imagery={imagery} />
@@ -210,7 +210,6 @@ export default function Analyzer() {
         <aside className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
           {busy && <Stepper phase={phase} />}
           {analysis && (
-            <div>
             <TypedBriefing
               analysis={analysis}
               location={imagery?.location || parsed?.location || ""}
@@ -225,7 +224,6 @@ export default function Analyzer() {
               saved={saved}
               onSave={onSave}
             />
-            </div>
           )}
           {!analysis && !busy && phase !== "error" && (
             <div className="flex h-full flex-col justify-center">

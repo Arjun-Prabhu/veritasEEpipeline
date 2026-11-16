@@ -104,7 +104,10 @@ ${numbers}`,
       .split(/(?<=\.)\s+/)
       .filter((sentence) => ![...badYears].some((year) => sentence.includes(String(year))))
       .join(" ");
-    const prediction = parsed?.prediction?.trim() ?? "";
+    const prediction = (parsed?.prediction?.trim() ?? "")
+      .split(/(?<=\.)\s+/)
+      .filter((sentence) => ![...badYears].some((year) => sentence.includes(String(year))))
+      .join(" ");
     if (!years.length && !overall && !prediction) return null;
     const outlook = parsed?.outlook === "bad" ? "bad" : "good";
     const solution = outlook === "bad" ? await solutionFor(imagery.location, prediction) : "";
