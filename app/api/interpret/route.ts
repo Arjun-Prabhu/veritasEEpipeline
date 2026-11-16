@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { pointChangeLines } from "@/lib/cover";
 import { interpretWithGemini } from "@/lib/gemini";
 import type { MLModelResponse } from "@/services/mlModelService";
 
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     analysis: {
       headline: "",
-      observed_changes: `${shift}\nAcross ${imagery.location}, that is the measured change from the first year to the last.`,
+      observed_changes: `${shift}\n${pointChangeLines(imagery.frames)}\nAcross ${imagery.location}, that is the measured change from the first year to the last.`,
       future_predictions: harmful
         ? "If this pace holds, built land keeps taking space from vegetation. That is a bad direction for the environment."
         : "If this pace holds, the current mix of land cover stays near where it is. That is not a clear harm.",

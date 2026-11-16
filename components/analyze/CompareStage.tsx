@@ -74,7 +74,22 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[11px] uppercase tracking-[0.22em] text-lime">{imagery.focus_area}</p>
-          <h2 className="mt-1 font-serif text-3xl text-ink md:text-4xl">{imagery.location}</h2>
+          <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-3">
+            <h2 className="font-serif text-3xl text-ink md:text-4xl">{imagery.location}</h2>
+            <span className="prompt-gun inline-flex rounded-full">
+              <button
+                type="button"
+                aria-pressed={maskOn}
+                onClick={() => setMaskOn((value) => !value)}
+                className={cx(
+                  "relative z-[1] m-[1.5px] rounded-full px-6 py-3 text-base",
+                  maskOn ? "bg-lime text-[#071018]" : "bg-[#05060f] text-ink",
+                )}
+              >
+                Classification
+              </button>
+            </span>
+          </div>
           <p className="mt-1 text-sm text-ink/65">
             {imagery.start_year}–{imagery.end_year}
             <span className="mx-2 text-ink/30">/</span>
@@ -88,17 +103,6 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
             </p>
           )}
           <div className="flex items-center gap-2">
-          <button
-            type="button"
-            aria-pressed={maskOn}
-            onClick={() => setMaskOn((value) => !value)}
-            className={cx(
-              "rounded-full border px-3 py-1.5 text-xs",
-              maskOn ? "border-lime bg-lime text-[#071018]" : "border-white/15 text-ink/80 hover:bg-white/5",
-            )}
-          >
-            Classification
-          </button>
           {frames.length > 2 && (
             <button
               type="button"

@@ -15,10 +15,22 @@ export default function LunaRoom() {
   const arrived = useRef(false);
   const scroller = useRef<HTMLDivElement>(null);
 
+  const asked = useRef(false);
+
   useEffect(() => {
     const saved = loadLunaThread();
     setTurns(saved);
     setReady(true);
+    const params = new URLSearchParams(window.location.search);
+    const prompt = params.get("q")?.trim();
+    if (!prompt || asked.current) return;
+    asked.current = true;
+    params.delete("q");
+    const rest = params.toString();
+    window.history.replaceState(null, "", rest ? `${window.location.pathname}?${rest}` : window.location.pathname);
+    void ask(prompt, saved);
+    // The opening prompt should send once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useLayoutEffect(() => {
@@ -53,9 +65,13 @@ export default function LunaRoom() {
     event.preventDefault();
     const prompt = draft.trim();
     if (!prompt || busy) return;
-    const next = [...turns, { role: "user" as const, text: prompt }];
-    setTurns(next);
     setDraft("");
+    await ask(prompt, turns);
+  }
+
+  async function ask(prompt: string, history: LunaTurn[]) {
+    const next = [...history, { role: "user" as const, text: prompt }];
+    setTurns(next);
     setBusy(true);
     try {
       const response = await fetch("/api/ask", {
@@ -76,7 +92,7 @@ export default function LunaRoom() {
             saveLunaThread([...next, { role: "luna", text: message }]);
             resolve();
           }
-        }, 42);
+        }, 42 / 1.25);
       });
     } catch {
       const failed = [...next, { role: "luna" as const, text: "Luna could not reach the model." }];

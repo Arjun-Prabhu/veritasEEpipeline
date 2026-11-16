@@ -1,8 +1,8 @@
 "use client";
 
 import { useTexture } from "@react-three/drei";
-import { Canvas, useThree } from "@react-three/fiber";
-import { Suspense, useLayoutEffect, useMemo, useRef } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Suspense, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import * as THREE from "three";
 
 function latLonToVec(lat: number, lon: number, radius: number) {
@@ -13,6 +13,14 @@ function latLonToVec(lat: number, lon: number, radius: number) {
     radius * Math.cos(phi),
     radius * Math.sin(phi) * Math.sin(theta),
   );
+}
+
+function Spinning({ spin, children }: { spin?: boolean; children: ReactNode }) {
+  const group = useRef<THREE.Group>(null);
+  useFrame((_, delta) => {
+    if (spin && group.current) group.current.rotation.y += delta * 0.45;
+  });
+  return <group ref={group}>{children}</group>;
 }
 
 function PinGlobe({ lat, lon }: { lat: number; lon: number }) {
@@ -43,7 +51,7 @@ function PinGlobe({ lat, lon }: { lat: number; lon: number }) {
   );
 }
 
-export default function MiniGlobe({ lat, lon }: { lat: number; lon: number }) {
+export default function MiniGlobe({ lat, lon, spin }: { lat: number; lon: number; spin?: boolean }) {
   return (
     <Canvas
       camera={{ position: [0, 0.15, 2.55], fov: 32 }}
@@ -54,7 +62,9 @@ export default function MiniGlobe({ lat, lon }: { lat: number; lon: number }) {
       <ambientLight intensity={0.45} />
       <directionalLight position={[3, 2, 4]} intensity={1.8} />
       <Suspense fallback={null}>
-        <PinGlobe lat={lat} lon={lon} />
+        <Spinning spin={spin}>
+          <PinGlobe lat={lat} lon={lon} />
+        </Spinning>
       </Suspense>
     </Canvas>
   );

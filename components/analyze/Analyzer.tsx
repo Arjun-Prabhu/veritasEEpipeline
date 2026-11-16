@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import CompareStage from "@/components/analyze/CompareStage";
 import { caseById } from "@/lib/cases";
@@ -9,6 +10,8 @@ import type { ParsedQuery } from "@/lib/query";
 import { loadReports, saveReport } from "@/lib/storage";
 import { coverSummary } from "@/lib/cover";
 import type { MLModelResponse } from "@/services/mlModelService";
+
+const MiniGlobe = dynamic(() => import("./MiniGlobe"), { ssr: false });
 
 type Phase = "idle" | "parsing" | "imaging" | "reading" | "ready" | "error";
 
@@ -73,8 +76,9 @@ export default function Analyzer() {
         void run(study.prompt);
       }
     } else if (query) {
-      setPrompt(query);
-      if (!draft) void run(query);
+      const keepEmpty = params.get("blank") === "1";
+      if (!keepEmpty) setPrompt(query);
+      if (!draft) void run(query, keepEmpty);
     }
     // The opening query should run once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -91,7 +95,7 @@ export default function Analyzer() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  async function run(nextPrompt: string) {
+  async function run(nextPrompt: string, keepEmpty = false) {
     const text = nextPrompt.trim();
     if (text.length < 3) {
       setError("Ask about a place, even in a single sentence.");
@@ -101,7 +105,7 @@ export default function Analyzer() {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
-    setPrompt(text);
+    if (!keepEmpty) setPrompt(text);
     setError("");
     setSaved(false);
     setAnalysis(null);
@@ -199,6 +203,8 @@ export default function Analyzer() {
         <div className="min-h-0">
           {imagery ? (
             <CompareStage imagery={imagery} />
+          ) : parsed && phase === "imaging" ? (
+            <RetrieveStage place={parsed} />
           ) : (
             <IdleStage phase={phase} error={error} />
           )}
@@ -206,6 +212,7 @@ export default function Analyzer() {
         <aside className="min-h-0 overflow-auto rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
           {busy && <Stepper phase={phase} />}
           {analysis && (
+            <div className="max-h-[min(70vh,640px)] overflow-y-auto pr-1">
             <TypedBriefing
               analysis={analysis}
               location={imagery?.location || parsed?.location || ""}
@@ -219,6 +226,7 @@ export default function Analyzer() {
               saved={saved}
               onSave={onSave}
             />
+            </div>
           )}
           {!analysis && !busy && phase !== "error" && (
             <div className="flex h-full flex-col justify-center">
@@ -281,7 +289,7 @@ function TypedBriefing({
       shown += 1;
       setCount(Math.min(script.length, shown));
       if (shown >= script.length) window.clearInterval(timer);
-    }, 42);
+    }, 42 / 1.25);
     return () => window.clearInterval(timer);
   }, [script]);
 
@@ -339,7 +347,7 @@ function TypedBriefing({
             window.clearInterval(timer);
             resolve();
           }
-        }, 42);
+        }, 42 / 1.25);
       });
     } catch {
       setTurns((current) => {
@@ -421,6 +429,31 @@ function TypedBriefing({
         </button>
       )}
     </div>
+  );
+}
+
+const RETRIEVE_LINES = ["Almost There", "Retrieving Images", "...", "..."];
+
+function RetrieveStage({ place }: { place: ParsedQuery }) {
+  const [shown, setShown] = useState(1);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setShown((count) => (count >= RETRIEVE_LINES.length ? 1 : count + 1));
+    }, 700);
+    return () => window.clearInterval(timer);
+  }, []);
+  return (
+    <section className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-3xl border border-white/10 bg-[#05060f] px-6 py-10 text-center">
+      <h2 className="font-serif text-4xl text-ink md:text-5xl">{place.location}</h2>
+      <div className="mt-6 h-56 w-56">
+        <MiniGlobe lat={place.latitude} lon={place.longitude} spin />
+      </div>
+      <div className="mt-6 space-y-1 text-sm text-white/80">
+        {RETRIEVE_LINES.slice(0, shown).map((line, index) => (
+          <p key={`${line}-${index}`}>{line}</p>
+        ))}
+      </div>
+    </section>
   );
 }
 

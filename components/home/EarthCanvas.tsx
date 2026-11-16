@@ -696,7 +696,7 @@ export default function EarthCanvas({
         window.setTimeout(() => {
           if (shown.current === null) setContinent(null);
         }, 400);
-      }, 2000);
+      }, 1500);
       return;
     }
     visible.current = false;
@@ -742,7 +742,7 @@ export default function EarthCanvas({
     const place = `How has the land at latitude ${pin.lat.toFixed(2)}, longitude ${pin.lon.toFixed(2)} changed since 2021?`;
     onTour?.("analyze");
     startPageTransition();
-    router.push(`/analyze?q=${encodeURIComponent(place)}`);
+    router.push(`/analyze?blank=1&q=${encodeURIComponent(place)}`);
   };
   return (
     <div className="absolute inset-0 z-[6]">

@@ -54,7 +54,7 @@ export default function ExploreGallery() {
                     {item.lat.toFixed(2)}, {item.lon.toFixed(2)}
                   </p>
                   <Link
-                    href={`/analyze?q=${encodeURIComponent(landmarkPrompt(item))}`}
+                    href={`/analyze?blank=1&q=${encodeURIComponent(landmarkPrompt(item))}`}
                     onClick={() => startPageTransition()}
                     className="mt-4 inline-block rounded-full bg-lime px-4 py-2 text-sm font-semibold text-[#071018]"
                   >

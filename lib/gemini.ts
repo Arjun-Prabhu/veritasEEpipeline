@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { Analysis } from "@/lib/narrative";
 import type { ParsedQuery } from "@/lib/query";
-import { coverSummary } from "@/lib/cover";
+import { coverSummary, pointChangeLines } from "@/lib/cover";
 import type { MLModelResponse } from "@/services/mlModelService";
 
 const MODEL = "models/gemini-3.5-flash-lite";
@@ -58,7 +58,7 @@ export async function interpretWithGemini(
       model: MODEL,
       contents: `Write a land-change briefing from the measured class percentages only. Do not invent numbers.
 
-Changes: one line for each step from one year to the next, naming the classes that moved, then one short paragraph for the whole span.
+Changes: one line for each step from one year to the next, naming the classes that moved and the percentage-point change, then one short paragraph for the whole span. Use only the measured point changes.
 Prediction: from that trend, say what the next years are likely to bring and whether that is good or bad for the environment. Set outlook to "bad" when the direction harms the environment, otherwise "good".
 
 Place: ${imagery.location}
@@ -95,7 +95,7 @@ ${numbers}`,
     const solution = outlook === "bad" ? await solutionFor(imagery.location, prediction) : "";
     return {
       headline: "",
-      observed_changes: [...years, overall].filter(Boolean).join("\n"),
+      observed_changes: [...years, pointChangeLines(imagery.frames), overall].filter(Boolean).join("\n"),
       root_causes: solution,
       future_predictions: prediction,
       mitigation: [],

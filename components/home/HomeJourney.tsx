@@ -20,7 +20,7 @@ const CONTINUE_KEY = "gaia-luna-continue-2";
 const TOUR = [
   {
     action: "drag",
-    say: "I'm Luna. Drag across the Earth to turn it and bring another side into view.",
+    say: "Drag across the Earth to turn it and bring another side into view.",
   },
   {
     action: "zoom",
@@ -48,6 +48,7 @@ export default function HomeJourney() {
   const progressRef = useRef(0.36);
   const riseRef = useRef(0);
   const earthRef = useRef<HTMLDivElement>(null);
+  const veilRef = useRef<HTMLDivElement>(null);
   const talkRef = useRef<HTMLElement>(null);
   const allowZoomRef = useRef(false);
   const [active, setActive] = useState(0);
@@ -102,9 +103,10 @@ export default function HomeJourney() {
       const y = window.scrollY;
       const rise = reduce ? 1 : Math.min(1, y / (height * 0.85));
       const fade = talking
-        ? Math.min(1, Math.max(0, (height * 0.85 - talking.getBoundingClientRect().top) / (height * 0.55)))
+        ? Math.min(1, Math.max(0, (height * 0.95 - talking.getBoundingClientRect().top) / (height * 0.28)))
         : 0;
       if (talking) talking.style.opacity = String(reduce ? 1 : fade);
+      if (veilRef.current) veilRef.current.style.opacity = String(reduce ? 0 : fade);
       const earth = earthRef.current;
       riseRef.current = rise;
       if (earth) {
@@ -173,6 +175,7 @@ export default function HomeJourney() {
 
   return (
     <div className="relative bg-[#05060f] text-white">
+      <div ref={veilRef} className="pointer-events-none fixed inset-0 z-[1] bg-black opacity-0" />
       <div ref={earthRef} className="pointer-events-none fixed inset-0 z-0 origin-center opacity-0">
         <EarthCanvas
           progressRef={progressRef}
@@ -198,6 +201,21 @@ export default function HomeJourney() {
         ))}
       </nav>
 
+      {ready && !tourOn && !reduceMotion && step < TOUR.length && (
+        <div className="pointer-events-none fixed bottom-20 left-1/2 z-30 w-[min(560px,92vw)] -translate-x-1/2 md:bottom-8">
+          <div className="relative border border-white/20 bg-[#05060f]/90 px-5 py-4 text-center text-sm leading-snug text-white">
+            Hi I'm Luna. Scroll down to learn more.
+            <img
+              src="/luna.png"
+              alt=""
+              width={40}
+              height={40}
+              className="luna-sides absolute -top-6 h-10 w-10"
+              style={{ left: 16 }}
+            />
+          </div>
+        </div>
+      )}
       {ready && tourOn && step < TOUR.length && (
         <div className="pointer-events-none fixed bottom-20 left-1/2 z-30 w-[min(560px,92vw)] -translate-x-1/2 md:bottom-8">
           <div className="relative border border-white/20 bg-[#05060f]/90 px-5 py-4 text-center text-sm leading-snug text-white">
@@ -236,7 +254,7 @@ export default function HomeJourney() {
         <section id="works" className="min-h-[40vh]" />
         <section id="luna" className="min-h-[30vh]" />
 
-        <section id="talk" ref={talkRef} className="relative bg-[#05060f] px-6 pb-28 pt-24 opacity-0 md:px-28">
+        <section id="talk" ref={talkRef} className="relative bg-black px-6 pb-28 pt-24 opacity-0 md:px-28">
           <h2 className="text-4xl">Talk to Luna</h2>
           {greet && (
             <p className="mt-6 flex items-center gap-3 text-sm text-white">
