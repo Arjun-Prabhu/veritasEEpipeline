@@ -1,78 +1,73 @@
-# Veritas EE Pipeline
+# Veritas EE Pipeline — Earth Intelligence
 
-**An Earth observation and AI pipeline for satellite imagery acquisition, land-cover segmentation, and geospatial analysis.**
+**An AI-powered geospatial analysis platform that makes historical satellite imagery and land-cover changes accessible through natural language.**
 
-Veritas EE Pipeline combines Google Earth Engine's satellite imagery infrastructure with a machine-learning workflow built around YOLO26 and Apple's MLX framework.
+Earth Intelligence allows users to explore how locations around the world have changed over time using real satellite imagery and geospatial datasets.
 
-The project focuses on acquiring geographically diverse satellite imagery, generating corresponding land-cover segmentation masks, and preparing labeled datasets for model training and evaluation.
+By combining Google Earth Engine, Sentinel-2 imagery, Google Dynamic World, and Google's Gemini API, the platform transforms satellite data into an interactive experience where users can ask questions about geographical locations and visualize historical environmental changes.
 
 ## Overview
 
-The pipeline consists of three primary stages:
+Earth Intelligence is built around three primary components:
 
-1. **Satellite Imagery Acquisition** – Retrieves Sentinel-2 satellite imagery using Google Earth Engine.
-2. **Land-Cover Annotation** – Uses Google Dynamic World labels to generate pixel-level land-cover masks and converts these masks into segmentation annotations.
-3. **Model Development** – Uses a YOLO26 implementation built on Apple's MLX framework for machine-learning experimentation on Apple Silicon.
+1. **Satellite Imagery Retrieval** — Acquires historical satellite imagery from Google Earth Engine using geographic coordinates and user-specified years.
+2. **Geospatial Analysis** — Generates land-cover classifications and calculates the distribution of different land-cover types within a selected region.
+3. **AI-Powered Interpretation** — Uses Gemini function calling to interpret user requests, retrieve relevant satellite data, and explain observed geographical changes.
 
-## 1. Satellite Imagery Acquisition
+The platform combines these components into a conversational interface, allowing users to investigate locations without manually navigating satellite imagery datasets.
 
-The imagery acquisition component uses two Google Earth Engine datasets:
+## Features
+
+### 1. Conversational Geospatial Analysis
+
+The application integrates Google's Gemini API to interpret natural-language questions.
+
+Users can ask questions such as:
+
+- How has Mumbai changed between 2016 and 2025?
+- Compare the land-cover distribution of Dubai in 2017 and 2024.
+- Show me Las Vegas in 2018 and 2025.
+- How has the built-up area of a particular location changed over time?
+
+Gemini determines when historical imagery is needed and invokes the appropriate backend function to retrieve the requested data.
+
+The application uses function calling to connect natural-language requests with actual Google Earth Engine operations.
+
+### 2. Historical Satellite Imagery
+
+The platform retrieves imagery from the following Google Earth Engine datasets:
 
 | Dataset | Purpose |
 |---|---|
-| Sentinel-2 Harmonized | Multispectral satellite imagery |
+| Sentinel-2 Harmonized | Historical multispectral satellite imagery |
 | Google Dynamic World V1 | Pixel-level land-cover classification |
 
-### Image Generation
+For each requested year, the application generates a cloud-masked Sentinel-2 median composite using the red, green, and blue bands.
 
-`imageLoading.py` automates the acquisition of satellite imagery.
+The resulting imagery provides a visual representation of the selected geographical region.
 
-The script:
+**Satellite imagery configuration:**
 
-- Randomly samples geographic locations from a predefined collection of global locations.
-- Introduces geographic variation around each sampling coordinate.
-- Selects a random acquisition date within the configured date range.
-- Searches for Sentinel-2 imagery with cloud coverage below the specified threshold.
-- Links Sentinel-2 imagery with corresponding Dynamic World labels.
-- Exports RGB satellite imagery and corresponding segmentation masks.
+| Parameter | Configuration |
+|---|---|
+| Satellite | Sentinel-2 |
+| Earth Engine collection | `COPERNICUS/S2_HARMONIZED` |
+| Imagery bands | B4, B3, B2 |
+| Temporal aggregation | Yearly median |
+| Cloud filtering | QA60 cloud and cirrus masking |
+| Cloud coverage filter | Below 40% |
+| Output dimensions | 768 pixels |
+| Supported historical years | 2016–present |
 
-### Acquisition Parameters
+The first full supported year is 2016. The current year contains partial-year observations.
 
-The default configuration includes:
+### 3. Land-Cover Classification
 
-| Parameter | Value |
-|---|---:|
-| Target images | 15,000 |
-| Image dimensions | 512 × 512 |
-| Spatial resolution | 10 meters per pixel |
-| Maximum cloud coverage | 20% |
-| Temporal range | April 2017 – September 2025 |
-| Date search window | 60 days |
-| Parallel workers | 32 |
-| Training/validation split | 80/20 |
+Earth Intelligence uses Google Dynamic World V1 to generate land-cover maps for each requested year.
 
-The imagery is generated using the Earth Engine high-volume endpoint to support parallel image requests.
+Dynamic World provides nine land-cover categories:
 
-### Geographic Diversity
-
-`consts.py` contains predefined geographic sampling locations across a variety of environmental and geographic categories, including:
-
-- Rainforests and tropical ecosystems
-- Mountains and glaciers
-- Deserts
-- Urban environments
-- Wetlands and lakes
-- Beaches and coastal environments
-- Arctic and subarctic environments
-- Grasslands and agricultural regions
-
-This sampling strategy is intended to introduce geographic and environmental diversity into the training dataset.
-
-## 2. Land-Cover Segmentation
-
-The pipeline uses Google Dynamic World's nine land-cover classes.
-
-| Class ID | Land-cover class |
+| Class ID | Classification |
 |---:|---|
 | 0 | Water |
 | 1 | Trees |
@@ -80,274 +75,426 @@ The pipeline uses Google Dynamic World's nine land-cover classes.
 | 3 | Flooded Vegetation |
 | 4 | Crops |
 | 5 | Shrub and Scrub |
-| 6 | Built |
+| 6 | Built-up |
 | 7 | Bare Ground |
 | 8 | Snow and Ice |
 
-Each class has an associated RGB visualization color defined in `consts.py`.
+For each year, the application calculates the per-pixel mode of the available Dynamic World classifications.
 
-### Segmentation Mask Generation
+This produces a representative annual land-cover map.
 
-For each acquired satellite image, the corresponding Dynamic World label image is converted into a color-coded segmentation mask.
+### 4. Geospatial Statistics
 
-These masks provide pixel-level annotations that can subsequently be processed into polygon-based segmentation labels.
+Beyond visualizing satellite imagery, the platform calculates quantitative land-cover statistics.
 
-### Bounding Box and Polygon Extraction
+For each requested year, the backend:
 
-`boundingBoxCreator.py` processes the generated segmentation masks using OpenCV.
+1. Generates an annual land-cover classification.
+2. Calculates pixel-area values using Google Earth Engine.
+3. Groups area measurements by land-cover class.
+4. Converts measurements into square kilometers.
+5. Calculates the percentage distribution of each class.
 
-Its workflow includes:
+The resulting statistics include:
 
-1. Converting mask images into HSV color space.
-2. Identifying individual land-cover classes using predefined HSV thresholds.
-3. Extracting external contours using `cv2.findContours()`.
-4. Approximating contours using `cv2.approxPolyDP()`.
-5. Filtering small regions based on contour area.
-6. Normalizing polygon coordinates relative to image dimensions.
-7. Writing segmentation annotations to text files.
+- Land-cover area in km².
+- Percentage of the selected region occupied by each class.
+- Total analyzed area.
+- Changes in land-cover percentages between requested years.
 
-The resulting annotations are structured for polygon-based object segmentation.
+Statistics are calculated using a 30-meter sampling scale to reduce computational overhead.
 
-## 3. YOLO26 MLX Model
+### 5. Interactive Visualization
 
-The repository includes a YOLO26 implementation using Apple's MLX framework.
+The React frontend displays the results of each analysis.
 
-The implementation is designed to support machine-learning workloads on Apple Silicon without requiring NVIDIA CUDA.
+For every requested year, users can view:
 
-### Supported Tasks
+- Sentinel-2 satellite imagery.
+- Dynamic World land-cover maps.
+- Color-coded land-cover distribution bars.
+- Land-cover area measurements.
+- Percentage distributions by classification.
 
-| Task | Description |
+Multiple years are displayed side by side, allowing users to compare geographical changes visually and quantitatively.
+
+## Technical Architecture
+
+The application uses a full-stack architecture consisting of a React frontend, FastAPI backend, Gemini integration, and Google Earth Engine data retrieval.
+
+```text
+                  USER
+                    |
+                    v
+          React + TypeScript
+              (Vite)
+                    |
+                    v
+             FastAPI Backend
+                    |
+          +---------+---------+
+          |                   |
+          v                   v
+      Gemini API         Google Earth
+      Function Calling      Engine
+          |                   |
+          |             +-----+------+
+          |             |            |
+          |             v            v
+          |         Sentinel-2   Dynamic World
+          |             |            |
+          |             +-----+------+
+          |                   |
+          |                   v
+          |           Geospatial Statistics
+          |                   |
+          +---------+---------+
+                    |
+                    v
+             Structured Results
+                    |
+                    v
+             React Frontend
+                    |
+                    v
+          Imagery + Maps + Statistics
+```
+
+### Technology Stack
+
+| Component | Technology |
 |---|---|
-| Detection | Object detection |
-| Segmentation | Instance segmentation |
-| Pose Estimation | Keypoint detection |
-| Oriented Bounding Boxes | Rotated object detection |
-| Tracking | Multi-object tracking |
-
-### Model Capabilities
-
-The implementation supports:
-
-- Model training and validation
-- Image and video inference
-- PyTorch checkpoint conversion
-- MLX-native model execution
-- Multi-object tracking
-- Segmentation and pose-estimation workflows
-
-The package includes a command-line interface and a Python API.
+| Frontend | React 18 |
+| Programming Language | TypeScript |
+| Frontend Build Tool | Vite |
+| Backend | Python |
+| API Framework | FastAPI |
+| AI Integration | Google Gemini API |
+| Satellite Imagery | Google Earth Engine |
+| Satellite Dataset | Sentinel-2 Harmonized |
+| Land-Cover Dataset | Google Dynamic World |
+| Geocoding | OpenStreetMap Nominatim |
+| Data Validation | Pydantic |
+| Deployment | Vercel |
 
 ## Repository Structure
 
 ```text
 veritasEEpipeline/
 │
-├── imageLoading.py
-│   └── Satellite imagery acquisition
+├── earth-intelligence/
+│   │
+│   ├── api/
+│   │   └── index.py
+│   │
+│   ├── backend/
+│   │   ├── __init__.py
+│   │   ├── main.py
+│   │   ├── ee_client.py
+│   │   ├── gemini_chat.py
+│   │   ├── geocode.py
+│   │   └── imagery.py
+│   │
+│   ├── frontend/
+│   │   ├── index.html
+│   │   ├── package.json
+│   │   ├── vite.config.ts
+│   │   │
+│   │   └── src/
+│   │       ├── App.tsx
+│   │       ├── Results.tsx
+│   │       ├── api.ts
+│   │       ├── types.ts
+│   │       └── styles.css
+│   │
+│   ├── requirements.txt
+│   ├── README.md
+│   └── vercel.json
 │
+├── PoIFormat.py
 ├── consts.py
-│   └── Land-cover classes, color mappings,
-│       and geographic sampling locations
-│
-├── boundingBoxCreator.py
-│   └── Segmentation mask processing
-│       and polygon annotation generation
-│
-├── requirements.txt
-│   └── Python dependencies
-│
-├── pyproject.toml
-│   └── Package configuration and dependencies
-│
-├── src/
-│   └── yolo26mlx/
-│       ├── engine/
-│       ├── models/
-│       ├── trackers/
-│       ├── converters/
-│       └── ...
-│
-├── train/
-│   ├── images/
-│   └── masks/
-│
-├── val/
-│   ├── images/
-│   └── masks/
-│
-└── data/
-    └── val/
-        └── labels/
+├── helpers.py
+├── installationImint.py
+├── poiIdentify.py
+├── poiAnalyze.py
+├── newPoIAnalyze.py
+├── integration.py
+├── test.py
+└── ...
 ```
 
-*The directory structure above illustrates the primary components and expected dataset outputs.*
+The `earth-intelligence/` directory contains the primary web application. The other Python files in the repository represent additional experimental geospatial and research components.
 
-## Installation
+## Installation and Setup
 
-### Requirements
+### Prerequisites
 
-- Python 3.10 or newer
-- macOS with Apple Silicon for MLX functionality
-- Google Earth Engine account and project
-- Internet connection for satellite imagery acquisition
+- Python 3.12 recommended
+- Node.js and npm
+- Google Cloud project with Earth Engine access
+- Google Earth Engine registration
+- Gemini API key
 
 ### 1. Clone the Repository
 
 ```bash
-git clone -b model https://github.com/vikram-saraswatula/veritasEEpipeline.git
+git clone -b main https://github.com/vikram-saraswatula/veritasEEpipeline.git
 
-cd veritasEEpipeline
+cd veritasEEpipeline/earth-intelligence
 ```
 
-### 2. Create a Virtual Environment
+### 2. Configure the Python Environment
+
+Create a virtual environment:
 
 ```bash
-python -m venv .venv
+python3.12 -m venv .venv
 
 source .venv/bin/activate
 ```
 
-### 3. Install Dependencies
+Install the backend dependencies:
 
 ```bash
-python -m pip install --upgrade pip
-
 pip install -r requirements.txt
 ```
 
-The project uses the following primary dependencies:
+### 3. Configure Google Earth Engine
 
-| Dependency | Purpose |
+Earth Intelligence uses Google Earth Engine to retrieve satellite imagery and land-cover classifications.
+
+To configure Earth Engine:
+
+1. Create or select a Google Cloud project.
+2. Enable the Earth Engine API.
+3. Register the project with Google Earth Engine.
+4. Configure authentication.
+
+For local development, authenticate using:
+
+```bash
+earthengine authenticate
+```
+
+Set the Earth Engine project identifier in your environment configuration.
+
+### 4. Configure Gemini
+
+Obtain a Gemini API key through Google AI Studio.
+
+Create a `.env` file inside `earth-intelligence/`:
+
+```env
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-2.5-flash
+
+EARTHENGINE_PROJECT=your_google_cloud_project
+```
+
+For local Earth Engine authentication, service-account credentials are not required.
+
+For server-side deployment, configure the additional service-account variables described below.
+
+### 5. Start the Backend
+
+From the `earth-intelligence/` directory:
+
+```bash
+uvicorn api.index:app --reload --port 8000
+```
+
+The FastAPI backend will be available at:
+
+```text
+http://localhost:8000
+```
+
+API health endpoint:
+
+```text
+http://localhost:8000/api/health
+```
+
+### 6. Start the Frontend
+
+Open another terminal:
+
+```bash
+cd earth-intelligence/frontend
+```
+
+Install frontend dependencies:
+
+```bash
+npm install
+```
+
+Start the Vite development server:
+
+```bash
+npm run dev
+```
+
+The frontend will be available at:
+
+```text
+http://localhost:5173
+```
+
+The Vite development configuration automatically proxies `/api` requests to the local FastAPI server on port 8000.
+
+## API Endpoints
+
+The FastAPI backend exposes three primary endpoints.
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/health` | GET | Check backend and credential configuration |
+| `/api/chat` | POST | Process conversational geospatial requests |
+| `/api/imagery` | POST | Retrieve historical satellite imagery directly |
+
+### Health Check
+
+```http
+GET /api/health
+```
+
+Returns information about backend availability and whether required credentials are configured.
+
+### Conversational Analysis
+
+```http
+POST /api/chat
+```
+
+Example request:
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Show me Mumbai in 2016, 2020, and 2025."
+    }
+  ]
+}
+```
+
+The backend sends the conversation to Gemini, handles any required function calls, and returns a response alongside retrieved imagery results.
+
+### Direct Imagery Retrieval
+
+```http
+POST /api/imagery
+```
+
+Example request:
+
+```json
+{
+  "place": "Mumbai, India",
+  "years": [2016, 2020, 2025],
+  "radius_km": 15
+}
+```
+
+The response includes:
+
+- Resolved location name and coordinates.
+- Satellite imagery URLs.
+- Land-cover map URLs.
+- Land-cover area statistics.
+- Individual yearly results and retrieval errors.
+
+## Configuration and Constraints
+
+The following parameters are defined in `backend/imagery.py`:
+
+| Parameter | Default |
+|---|---:|
+| Minimum supported year | 2016 |
+| Maximum years per request | 6 |
+| Default region half-width | 15 km |
+| Minimum region half-width | 1 km |
+| Maximum region half-width | 40 km |
+| Image thumbnail dimension | 768 pixels |
+| Land-cover statistics scale | 30 meters |
+
+The analyzed region is a square centered on the geocoded location.
+
+The backend retrieves requested years concurrently and preserves successful results even if an individual year fails.
+
+## Deployment
+
+The application is configured for deployment through Vercel.
+
+The `vercel.json` configuration:
+
+- Builds the React frontend using Vite.
+- Serves the generated frontend from `frontend/dist`.
+- Routes API requests to the Python FastAPI entrypoint.
+- Includes backend files in the serverless function.
+- Sets the API execution limit to 60 seconds.
+
+### Environment Variables
+
+Configure the following variables in Vercel:
+
+| Variable | Description |
 |---|---|
-| MLX | Apple Silicon machine learning |
-| NumPy | Numerical computation |
-| OpenCV | Image processing and contour extraction |
-| Pillow | Image loading and saving |
-| Earth Engine API | Satellite imagery acquisition |
-| PyTorch | Model weight conversion |
-| Ultralytics | YOLO-related compatibility and conversion |
-| Flask | Web application functionality |
+| `GEMINI_API_KEY` | Gemini API key |
+| `GEMINI_MODEL` | Gemini model identifier |
+| `EARTHENGINE_PROJECT` | Google Cloud project ID |
+| `EARTHENGINE_SERVICE_ACCOUNT` | Earth Engine service-account email |
+| `EARTHENGINE_PRIVATE_KEY` | Service-account private key or full JSON key contents |
 
-## Running the Pipeline
+The service account must have the appropriate Google Earth Engine permissions.
 
-### Step 1: Configure Google Earth Engine
+Credentials should remain server-side and must never be exposed in frontend code or committed to the repository.
 
-The imagery acquisition script authenticates with Google Earth Engine.
+## Current Limitations
 
-Ensure that your Earth Engine project is accessible and configured correctly.
+Earth Intelligence currently focuses on historical observation rather than predictive modeling.
 
-The current implementation initializes the project using:
+Important limitations include:
 
-```python
-ee.Initialize(
-    project="veritasaihackathon",
-    opt_url="https://earthengine-highvolume.googleapis.com"
-)
-```
+- **No forecasting:** The platform does not currently predict future geographical conditions.
+- **Historical coverage:** Dynamic World analysis begins with 2016, the first full supported year.
+- **Sampling resolution:** Land-cover statistics use a 30-meter sampling scale, while the source datasets provide finer native spatial resolution.
+- **Regional coverage:** Statistics are calculated within a square region around the selected location.
+- **Imagery availability:** Cloud coverage, satellite acquisition frequency, and missing observations can affect individual years.
+- **Temporary imagery URLs:** Earth Engine thumbnail URLs expire, so previously generated imagery may eventually need to be retrieved again.
 
-Update the project identifier if using a different Earth Engine project.
+## Future Development
 
-### Step 2: Generate Satellite Images
+Potential directions for expanding Earth Intelligence include:
 
-Run:
-
-```bash
-python imageLoading.py
-```
-
-The script generates satellite imagery and corresponding Dynamic World masks.
-
-Generated files are organized into training and validation directories.
-
-### Step 3: Generate Segmentation Annotations
-
-Run:
-
-```bash
-python boundingBoxCreator.py
-```
-
-This processes the validation masks and writes polygon-based annotations.
-
-The current annotation script is configured around the validation directory; adapt its paths and processing logic when generating annotations for the complete training dataset.
-
-### Step 4: Model Development
-
-The YOLO26 MLX implementation exposes a command-line interface for training, validation, inference, and tracking.
-
-For example:
-
-```bash
-yolo26 info --model models/yolo26n.npz
-```
-
-The package also supports Python-based model usage:
-
-```python
-from yolo26mlx import YOLO
-
-model = YOLO("models/yolo26n.npz")
-
-results = model.predict(
-    source="example.png",
-    conf=0.25,
-    imgsz=640
-)
-```
-
-A dataset configuration file compatible with the selected YOLO task is required for training.
-
-## Configuration
-
-Several parameters can be adjusted depending on the desired dataset size and geographic coverage.
-
-In `imageLoading.py`:
-
-```python
-NUM_IMAGES = 15000
-WORKERS = 32
-SIZE = 512
-SCALE = 10
-JITTER_DEG = 0.15
-MAX_CLOUD = 20
-VAL_EVERY = 5
-```
-
-These parameters control the number of images requested, parallel processing, image dimensions, spatial resolution, sampling variation, cloud filtering, and dataset splitting.
-
-In `consts.py`, geographic sampling locations and land-cover color mappings can be modified or extended.
-
-## Limitations and Future Development
-
-Potential areas for further development include:
-
-- Expanding geographic sampling to improve regional representation.
-- Incorporating additional satellite imagery sources and spectral bands.
-- Improving cloud and atmospheric artifact filtering.
-- Generating segmentation annotations for both training and validation datasets.
-- Developing automated dataset quality-control procedures.
-- Integrating model predictions with geographic coordinates.
-- Evaluating segmentation performance across different geographic and environmental conditions.
-- Supporting temporal comparisons to analyze land-cover changes.
-
-## License
-
-The YOLO26 MLX package configuration specifies the GNU Affero General Public License v3.0 (AGPL-3.0-only).
-
-Review the licensing terms of individual dependencies and external datasets before redistribution or commercial use.
+- Training and integrating predictive models for land-cover change.
+- Incorporating additional satellite datasets and spectral bands.
+- Improving temporal consistency between annual composites.
+- Adding more advanced geospatial statistics.
+- Supporting larger and customizable geographic regions.
+- Persisting generated imagery for long-term access.
+- Improving uncertainty quantification and model validation.
+- Expanding environmental monitoring and climate-related analysis.
 
 ## Acknowledgements
 
-This project builds upon publicly available geospatial datasets and machine-learning frameworks, including:
+This project builds upon publicly available geospatial datasets and open-source technologies:
 
 - [Google Earth Engine](https://earthengine.google.com/)
-- [Sentinel-2](https://dataspace.copernicus.eu/)
+- [Sentinel-2 / Copernicus](https://dataspace.copernicus.eu/)
 - [Google Dynamic World](https://dynamicworld.app/)
+- [Google Gemini](https://ai.google.dev/)
 - [Apple MLX](https://github.com/ml-explore/mlx)
-- [Ultralytics](https://github.com/ultralytics/ultralytics)
+- [OpenStreetMap](https://www.openstreetmap.org/)
+- [React](https://react.dev/)
+- [FastAPI](https://fastapi.tiangolo.com/)
 
 ---
 
 **Repository:** [vikram-saraswatula/veritasEEpipeline](https://github.com/vikram-saraswatula/veritasEEpipeline)
 
-**Branch:** `model`
+**Branch:** `main`
+
+**Application:** Earth Intelligence
