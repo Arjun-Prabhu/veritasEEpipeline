@@ -70,7 +70,7 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
   const frame = usePictureFrame(afterPhoto || beforePhoto);
 
   return (
-    <section className="flex min-h-0 flex-col gap-4 overflow-auto rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
+    <section className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[11px] uppercase tracking-[0.22em] text-lime">{imagery.focus_area}</p>
