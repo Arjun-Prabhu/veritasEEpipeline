@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { Analysis } from "@/lib/narrative";
 import type { ParsedQuery } from "@/lib/query";
+import { coverSummary } from "@/lib/cover";
 import type { MLModelResponse } from "@/services/mlModelService";
 
 const MODEL = "models/gemini-3.5-flash-lite";
@@ -44,53 +45,75 @@ export async function interpretWithGemini(
   prompt: string,
   imagery: MLModelResponse,
 ): Promise<Omit<Analysis, "source"> | null> {
+  const ai = client();
+  if (!ai) return null;
+  const first = imagery.frames[0];
+  const last = imagery.frames[imagery.frames.length - 1];
   const numbers = imagery.frames
-    .map(
-      (frame) =>
-        `${frame.year}: green ${frame.land_cover.green_space}, urban ${frame.land_cover.urban}, water ${frame.land_cover.water}, crops ${frame.land_cover.crops}, built ${frame.land_cover.built}`,
-    )
+    .map((frame) => coverSummary(frame.year, frame.land_cover, Boolean(frame.classified)))
     .join("\n");
-  const request = `You are Luna, writing a land-change briefing for a curious non-expert.
-
-The user asked: "${prompt}"
-Place: ${imagery.location}
-Region: ${imagery.region || ""}
-Country: ${imagery.country || ""}
-Focus: ${imagery.focus_area}
-
-Use the place name in the headline and the prose. Do not mention raw latitude or longitude.
-
-Land-cover percentages for every year (these numbers are authoritative):
-${numbers}
-
-Do not invent counts of people, hectares, or statutes. Use what you know about this specific place to explain plausible causes. If the change is harmful, mitigation steps must be concrete and local. If the change is a recovery, the steps should protect that recovery. headline is one sentence.
-
-Reply with only JSON using these keys: headline, observed_changes, root_causes, future_predictions, mitigation. mitigation is an array of short strings.`;
 
   try {
-    const text = await askGemini(request);
-    const parsed = readJson<Omit<Analysis, "source">>(text);
-    if (parsed?.observed_changes && parsed.root_causes && parsed.future_predictions) {
-      return {
-        headline: parsed.headline || `${imagery.location} is changing.`,
-        observed_changes: parsed.observed_changes,
-        root_causes: parsed.root_causes,
-        future_predictions: parsed.future_predictions,
-        mitigation: Array.isArray(parsed.mitigation)
-          ? parsed.mitigation.filter((step) => typeof step === "string" && step.trim())
-          : [],
-      };
-    }
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents: `Write a land-change briefing from the measured class percentages only. Do not invent numbers.
+
+Changes: one line for each step from one year to the next, naming the classes that moved, then one short paragraph for the whole span.
+Prediction: from that trend, say what the next years are likely to bring and whether that is good or bad for the environment. Set outlook to "bad" when the direction harms the environment, otherwise "good".
+
+Place: ${imagery.location}
+Question: ${prompt}
+Years: ${first?.year ?? imagery.start_year} to ${last?.year ?? imagery.end_year}
+Land cover, percent:
+${numbers}`,
+      config: {
+        temperature: 0.3,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            year_changes: { type: Type.ARRAY, items: { type: Type.STRING } },
+            overall: { type: Type.STRING },
+            prediction: { type: Type.STRING },
+            outlook: { type: Type.STRING, enum: ["good", "bad"] },
+          },
+          required: ["year_changes", "overall", "prediction", "outlook"],
+        },
+      },
+    });
+    const parsed = readJson<{
+      year_changes?: string[];
+      overall?: string;
+      prediction?: string;
+      outlook?: string;
+    }>(response.text);
+    const years = (parsed?.year_changes ?? []).map((line) => line.trim()).filter(Boolean);
+    const overall = parsed?.overall?.trim() ?? "";
+    const prediction = parsed?.prediction?.trim() ?? "";
+    if (!years.length && !overall && !prediction) return null;
+    const outlook = parsed?.outlook === "bad" ? "bad" : "good";
+    const solution = outlook === "bad" ? await solutionFor(imagery.location, prediction) : "";
     return {
-      headline: `${imagery.location} is changing.`,
-      observed_changes: text,
-      root_causes: "The reading did not separate a cause from the observation.",
-      future_predictions: "The next years depend on whether this pace continues.",
+      headline: "",
+      observed_changes: [...years, overall].filter(Boolean).join("\n"),
+      root_causes: solution,
+      future_predictions: prediction,
       mitigation: [],
     };
   } catch (error) {
     console.error("Gemini interpretation failed", error);
     return null;
+  }
+}
+
+async function solutionFor(location: string, prediction: string) {
+  const ask = `Place: ${location}. The land trend is harmful: ${prediction}
+Use web search. In two or three sentences, say what the current government is doing about this, or what people there can do. End with a concrete call to action. Do not invent a program or a statistic.`;
+  try {
+    return await askGemini(ask, { search: true });
+  } catch (error) {
+    console.error("Solution search failed", error);
+    return `The measured direction is harmful for ${location}. Look up the local land-use plan and ask the city to protect the classes that are shrinking.`;
   }
 }
 
@@ -105,18 +128,26 @@ function readGeminiKey() {
   return key;
 }
 
-export async function askGemini(prompt: string): Promise<string> {
+export async function askGemini(prompt: string, options?: { search?: boolean }): Promise<string> {
   const apiKey = readGeminiKey();
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set on this server.");
   const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.generateContent({
-    model: MODEL,
-    contents: prompt,
-    config: { temperature: 0.3 },
-  });
-  const text = response.text?.trim();
-  if (!text) throw new Error("The model returned an empty reply.");
-  return text;
+  try {
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents: prompt,
+      config: {
+        temperature: 0.3,
+        ...(options?.search ? { tools: [{ googleSearch: {} }] } : {}),
+      },
+    });
+    const text = response.text?.trim();
+    if (!text) throw new Error("The model returned an empty reply.");
+    return text;
+  } catch (error) {
+    if (!options?.search) throw error;
+    return askGemini(prompt);
+  }
 }
 
 export function geminiErrorMessage(error: unknown) {

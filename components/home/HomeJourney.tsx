@@ -20,30 +20,18 @@ const CONTINUE_KEY = "gaia-luna-continue-2";
 const TOUR = [
   {
     action: "drag",
-    x: "16%",
-    y: "62%",
-    flip: false,
     say: "I'm Luna. Drag across the Earth to turn it and bring another side into view.",
   },
   {
     action: "zoom",
-    x: "14%",
-    y: "38%",
-    flip: false,
     say: "Hover a continent for a short reading and Explore. Then click the land to move closer.",
   },
   {
     action: "pin",
-    x: "60%",
-    y: "30%",
-    flip: true,
     say: "Click the land again to place a pin. Press escape if you want the whole globe back.",
   },
   {
     action: "analyze",
-    x: "58%",
-    y: "56%",
-    flip: true,
     say: "Press Analyze. That opens the years for the place you just pinned.",
   },
 ] as const;
@@ -58,18 +46,18 @@ function savedStep() {
 
 export default function HomeJourney() {
   const progressRef = useRef(0.36);
+  const riseRef = useRef(0);
   const earthRef = useRef<HTMLDivElement>(null);
   const talkRef = useRef<HTMLElement>(null);
   const allowZoomRef = useRef(false);
   const [active, setActive] = useState(0);
-  const [open, setOpen] = useState(false);
   const [ready, setReady] = useState(false);
   const [step, setStep] = useState(0);
-  const [hopping, setHopping] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [tourOn, setTourOn] = useState(false);
   const [greet, setGreet] = useState(false);
   const advanceRef = useRef<(action: TourAction) => void>(() => {});
+  const tourDoneRef = useRef(false);
   const zoomAt = TOUR.findIndex((item) => item.action === "zoom");
   allowZoomRef.current = tourOn && step >= zoomAt;
 
@@ -77,7 +65,9 @@ export default function HomeJourney() {
     setStep((current) => {
       if (current >= TOUR.length || TOUR[current].action !== action) return current;
       const next = current + 1;
-      sessionStorage.setItem(TOUR_KEY, next >= TOUR.length ? "done" : String(next));
+      const done = next >= TOUR.length;
+      if (done) tourDoneRef.current = true;
+      sessionStorage.setItem(TOUR_KEY, done ? "done" : String(next));
       return next;
     });
   };
@@ -87,6 +77,7 @@ export default function HomeJourney() {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     setReduceMotion(reduce);
     const saved = savedStep();
+    tourDoneRef.current = saved >= TOUR.length;
     setStep(saved);
     if (saved < TOUR.length) {
       sessionStorage.setItem(TOUR_KEY, String(saved));
@@ -103,13 +94,6 @@ export default function HomeJourney() {
   }, []);
 
   useEffect(() => {
-    if (reduceMotion) return;
-    setHopping(true);
-    const timer = window.setTimeout(() => setHopping(false), 700);
-    return () => window.clearTimeout(timer);
-  }, [step, reduceMotion]);
-
-  useEffect(() => {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const nodes = SECTIONS.map((section) => document.getElementById(section.id)).filter(Boolean) as HTMLElement[];
     const onScroll = () => {
@@ -122,9 +106,8 @@ export default function HomeJourney() {
         : 0;
       if (talking) talking.style.opacity = String(reduce ? 1 : fade);
       const earth = earthRef.current;
+      riseRef.current = rise;
       if (earth) {
-        const drop = (1 - rise) * 68;
-        earth.style.transform = `translateY(${drop}%)`;
         earth.style.opacity = String(1 - (reduce ? 0 : fade));
         const settled = rise >= 0.62;
         earth.style.pointerEvents = settled && fade < 0.55 ? "auto" : "none";
@@ -136,18 +119,56 @@ export default function HomeJourney() {
       });
       setActive(next);
     };
+    const cap = () => window.innerHeight * 0.85;
+    const hold = () => {
+      if (tourDoneRef.current) return;
+      const limit = cap();
+      if (window.scrollY > limit) window.scrollTo(0, limit);
+    };
+    const onWheel = (event: WheelEvent) => {
+      if (tourDoneRef.current || event.deltaY <= 0) return;
+      if (window.scrollY >= cap() - 1) {
+        event.preventDefault();
+        window.scrollTo(0, cap());
+      }
+    };
+    let touchY = 0;
+    const onTouchStart = (event: TouchEvent) => {
+      touchY = event.touches[0]?.clientY ?? 0;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      if (tourDoneRef.current) return;
+      const y = event.touches[0]?.clientY ?? touchY;
+      const scrollingDown = y < touchY;
+      touchY = y;
+      if (scrollingDown && window.scrollY >= cap() - 1) event.preventDefault();
+    };
     onScroll();
+    hold();
     window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("scroll", hold);
     window.addEventListener("resize", onScroll);
+    window.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
     return () => {
       window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("scroll", hold);
       window.removeEventListener("resize", onScroll);
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
     };
   }, []);
 
   const go = (id: string) => {
-    setOpen(false);
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const limit = window.innerHeight * 0.85;
+    const node = document.getElementById(id);
+    if (!tourDoneRef.current && node && node.offsetTop > limit) {
+      window.scrollTo({ top: limit, behavior: "smooth" });
+      return;
+    }
+    node?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (
@@ -155,58 +176,12 @@ export default function HomeJourney() {
       <div ref={earthRef} className="pointer-events-none fixed inset-0 z-0 origin-center opacity-0">
         <EarthCanvas
           progressRef={progressRef}
+          riseRef={riseRef}
           onReady={() => setReady(true)}
           onTour={(action) => advanceRef.current(action)}
           allowZoomRef={allowZoomRef}
         />
       </div>
-
-      <nav aria-label="Page sections" className="fixed left-3 top-1/2 z-40 hidden -translate-y-1/2 md:block">
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-          className="mb-3 text-[10px] uppercase tracking-[0.2em] text-white/50"
-        >
-          {open ? "Close" : "Index"}
-        </button>
-        <ol className="flex flex-col">
-          {SECTIONS.map((section, index) => (
-            <li key={section.id}>
-              <button
-                type="button"
-                aria-current={active === index ? "true" : undefined}
-                onClick={() => go(section.id)}
-                className="group flex items-center gap-3 py-1 text-left"
-              >
-                <span
-                  className="block w-1.5 transition-all"
-                  style={{
-                    background: section.color,
-                    height: active === index ? 36 : 18,
-                    opacity: active === index ? 1 : 0.35,
-                  }}
-                />
-                <span className="pointer-events-none absolute left-8 hidden whitespace-nowrap text-[11px] text-white/80 group-hover:block group-focus:block">
-                  {section.label}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ol>
-        {open && (
-          <ul className="absolute left-8 top-8 w-64 border border-white/15 bg-[#05060f]/95 p-3">
-            {SECTIONS.map((section) => (
-              <li key={section.id}>
-                <button type="button" onClick={() => go(section.id)} className="block w-full py-2 text-left">
-                  <span className="block text-sm" style={{ color: section.color }}>{section.label}</span>
-                  <span className="block text-[12px] text-white/55">{section.note}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </nav>
 
       <nav aria-label="Page sections" className="fixed bottom-3 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 md:hidden">
         <span className="text-[11px] text-white/70">{SECTIONS[active].label}</span>
@@ -224,25 +199,21 @@ export default function HomeJourney() {
       </nav>
 
       {ready && tourOn && step < TOUR.length && (
-        <div
-          className="pointer-events-none fixed z-30 flex max-w-[340px] items-start gap-3"
-          style={{
-            left: reduceMotion ? TOUR[0].x : TOUR[step].x,
-            top: reduceMotion ? TOUR[0].y : TOUR[step].y,
-            flexDirection: TOUR[step].flip && !reduceMotion ? "row-reverse" : "row",
-            transition: reduceMotion ? undefined : "left 0.85s cubic-bezier(.2,.8,.2,1), top 0.85s cubic-bezier(.2,.8,.2,1)",
-          }}
-        >
-          <img
-            src="/luna.png"
-            alt=""
-            width={40}
-            height={40}
-            className={`h-10 w-10 ${hopping ? "luna-hop" : "luna-bob"}`}
-          />
-          <span className="border border-white/20 bg-[#05060f]/85 px-3 py-2 text-sm leading-snug text-white">
+        <div className="pointer-events-none fixed bottom-20 left-1/2 z-30 w-[min(560px,92vw)] -translate-x-1/2 md:bottom-8">
+          <div className="relative border border-white/20 bg-[#05060f]/90 px-5 py-4 text-center text-sm leading-snug text-white">
             {TOUR[step].say}
-          </span>
+            <img
+              src="/luna.png"
+              alt=""
+              width={40}
+              height={40}
+              className={`absolute -top-6 h-10 w-10 ${reduceMotion ? "" : "luna-sides"}`}
+              style={{
+                left: step % 2 === 0 ? 16 : "calc(100% - 56px)",
+                transition: reduceMotion ? undefined : "left 0.7s cubic-bezier(.2,.8,.2,1)",
+              }}
+            />
+          </div>
         </div>
       )}
 
@@ -251,7 +222,7 @@ export default function HomeJourney() {
           <h1 className="mt-6 text-center text-6xl font-semibold tracking-tight md:text-8xl">
             g<span className="italic text-[#7dccff]">AI</span>a
           </h1>
-          <p className="pointer-events-none mx-auto mt-10 max-w-xl border border-white/20 bg-[#05060f]/55 px-8 py-7 text-center text-sm leading-relaxed text-white/85">
+          <p className="pointer-events-none mx-auto mt-10 max-w-xl px-8 py-7 text-center text-sm leading-relaxed text-white">
             gAIa transforms satellite imagery into an understanding of our changing planet. Explore how cities,
             landscapes, and ecosystems evolve over time through Earth observation, geospatial analysis, and
             artificial intelligence.

@@ -11,12 +11,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Type something to send." }, { status: 400 });
   }
   const luna = body?.luna === true;
+  const context = body?.context as
+    | { location?: string; briefing?: string; years?: string; focus?: string; covers?: string }
+    | undefined;
+  const place = [context?.location, context?.years, context?.focus].filter(Boolean).join(", ");
   const contents = luna
-    ? `You are Luna, a small assistant on the gAIa home page. Assume the user's message is about gAIa, satellites, land consumption, land use, or the environment, and answer helpfully in two or three short sentences. Only if the message is completely unrelated to those subjects, say you can't answer that.\n\n${prompt}`
+    ? `You are Luna on gAIa. Use web search for real events, policies, climate, and local history. Stay on gAIa, satellites, land use, land consumption, the environment, or the place being discussed. If the message is completely unrelated to those subjects, say you can't answer that. Answer in two or three short sentences. When explaining why land changed, name real-world causes. Do not invent statistics.
+${place ? `\nPlace: ${place}` : ""}
+${context?.briefing ? `Briefing: ${context.briefing}` : ""}
+${context?.covers ? `Measured land cover, percent:\n${context.covers}` : ""}
+
+${prompt}`
     : prompt;
 
   try {
-    const reply = await askGemini(contents);
+    const reply = await askGemini(contents, { search: luna });
     return NextResponse.json({ reply });
   } catch (error) {
     const message = geminiErrorMessage(error);

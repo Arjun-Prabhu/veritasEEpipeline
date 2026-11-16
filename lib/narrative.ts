@@ -1,4 +1,4 @@
-import type { LandCoverPercentages, MLModelResponse } from "@/services/mlModelService";
+import type { MLModelResponse } from "@/services/mlModelService";
 
 export type Analysis = {
   headline: string;
@@ -9,7 +9,7 @@ export type Analysis = {
   source: "gemini" | "local";
 };
 
-type CoverKey = keyof LandCoverPercentages;
+type CoverKey = "green_space" | "urban" | "water" | "crops" | "built";
 
 const LABELS: Record<CoverKey, string> = {
   green_space: "green space",

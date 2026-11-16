@@ -11,7 +11,8 @@ export async function GET(request: Request) {
   if (!/^[a-f0-9]{12}$/.test(id) || !/^\d{4}$/.test(year)) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
-  const file = path.join(process.cwd(), "EarthEngine", "out", id, `satellite_${year}.png`);
+  const view = url.searchParams.get("view") === "class" ? "class" : "satellite";
+  const file = path.join(process.cwd(), "EarthEngine", "out", id, `${view}_${year}.png`);
   try {
     const image = await readFile(file);
     return new NextResponse(image, {

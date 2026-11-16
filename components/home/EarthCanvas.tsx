@@ -62,6 +62,7 @@ type GlobeFocus = {
 
 function Earth({
   progressRef,
+  riseRef,
   hover,
   onContinent,
   outlineRef,
@@ -70,6 +71,7 @@ function Earth({
   onDragged,
 }: {
   progressRef: React.RefObject<number>;
+  riseRef?: React.RefObject<number>;
   hover: React.RefObject<{ active: boolean; point: THREE.Vector3 }>;
   onContinent: (continent: Continent | null) => void;
   outlineRef: React.RefObject<number>;
@@ -217,6 +219,8 @@ function Earth({
     poses.mixed.multiply(spinQ).multiply(pitchQ);
     const focus = focusRef.current;
     if (earth.current) {
+      const rise = riseRef?.current ?? 1;
+      earth.current.position.y = -(1 - rise) * 2.05;
       if (focus?.close) {
         const aim = latLonToVec(focus.lat, focus.lon, 1).normalize();
         const face = new THREE.Quaternion().setFromUnitVectors(aim, new THREE.Vector3(0, 0, 1));
@@ -352,11 +356,11 @@ function Earth({
       <group ref={pin} visible={false}>
         <mesh position={[0, 0.045, 0]} raycast={() => null}>
           <cylinderGeometry args={[0.004, 0.004, 0.09, 8]} />
-          <meshPhongMaterial color="#d5dde6" specular="#ffffff" shininess={80} />
+          <meshPhongMaterial color="#c5d0dc" specular="#ffffff" shininess={70} />
         </mesh>
         <mesh position={[0, 0.098, 0]} raycast={() => null}>
-          <sphereGeometry args={[0.016, 20, 20]} />
-          <meshBasicMaterial color="#7dccff" />
+          <sphereGeometry args={[0.016, 24, 24]} />
+          <meshPhongMaterial color="#7dccff" specular="#ffffff" shininess={90} />
         </mesh>
       </group>
     </group>
@@ -557,25 +561,21 @@ function SkyStars({ progressRef }: { progressRef: React.RefObject<number> }) {
       return (seed - 1) / 2147483646;
     };
     const placed: { id: number; position: [number, number, number]; size: number; hit: number }[] = [];
-    const push = (x: number, y: number, z: number) => {
+    const push = (x: number, y: number, z: number, scale = 1) => {
       placed.push({
         id: placed.length,
         position: [x, y, z],
-        size: 0.16 + rand() * 0.22,
+        size: (0.16 + rand() * 0.22) * scale,
         hit: 0.62 + rand() * 0.35,
       });
     };
-    while (placed.length < 46) {
-      const ax = (rand() - 0.5) * 1.05;
-      const ay = rand() * 0.38;
-      const dist = 14 + rand() * 8;
-      push(Math.tan(ax) * dist, 1.05 + Math.tan(ay) * dist * 0.5, 4.1 - dist);
-    }
-    while (placed.length < 88) {
-      const ax = (rand() - 0.5) * 1.15;
-      const ay = 0.05 + rand() * 0.42;
-      const dist = 13 + rand() * 9;
-      push(Math.tan(ax) * dist, -0.15 - Math.tan(ay) * dist * 0.62, 3.4 - dist);
+    while (placed.length < 288) {
+      const dist = 8 + rand() * 18;
+      const halfV = Math.tan(THREE.MathUtils.degToRad(16)) * dist;
+      const halfH = halfV * 2.4;
+      const across = (rand() - 0.5) * 1.85;
+      const down = (rand() - 0.5) * 1.85;
+      push(across * halfH, 0.22 + down * halfV, 5.15 - dist, 0.85 + rand() * 0.45);
     }
     return placed;
   }, []);
@@ -594,7 +594,7 @@ function SkyStars({ progressRef }: { progressRef: React.RefObject<number> }) {
       const scale = stars[index].size * (1 + item.value * 1.35);
       sprite.scale.set(scale, scale, 1);
       const material = sprite.material as THREE.SpriteMaterial;
-      material.opacity = (0.42 + item.value * 0.58) * fade;
+      material.opacity = (0.7 + item.value * 0.3) * fade;
     });
   });
 
@@ -618,7 +618,7 @@ function SkyStars({ progressRef }: { progressRef: React.RefObject<number> }) {
               depthTest
               depthWrite={false}
               blending={THREE.AdditiveBlending}
-              opacity={0.42}
+              opacity={0.7}
             />
           </sprite>
           <mesh
@@ -657,11 +657,13 @@ export type TourAction = "drag" | "zoom" | "pin" | "analyze";
 
 export default function EarthCanvas({
   progressRef,
+  riseRef,
   onReady,
   onTour,
   allowZoomRef,
 }: {
   progressRef: React.RefObject<number>;
+  riseRef?: React.RefObject<number>;
   onReady?: () => void;
   onTour?: (action: TourAction) => void;
   allowZoomRef?: React.RefObject<boolean>;
@@ -762,6 +764,7 @@ export default function EarthCanvas({
         <Suspense fallback={null}>
           <Earth
             progressRef={progressRef}
+            riseRef={riseRef}
             hover={hover}
             onContinent={selectContinent}
             outlineRef={outlineRef}

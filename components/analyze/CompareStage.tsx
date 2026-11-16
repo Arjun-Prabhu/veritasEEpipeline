@@ -7,12 +7,24 @@ import type { LandCoverPercentages, MLModelResponse } from "@/services/mlModelSe
 
 const MiniGlobe = dynamic(() => import("./MiniGlobe"), { ssr: false });
 
-const CLASSES: Array<{ key: keyof LandCoverPercentages; label: string; swatch: string }> = [
+const LEGACY: Array<{ key: keyof LandCoverPercentages; label: string; swatch: string }> = [
   { key: "green_space", label: "Green space", swatch: "bg-[#1f8a4c]" },
   { key: "crops", label: "Crops", swatch: "bg-[#e2c14a]" },
   { key: "urban", label: "Urban", swatch: "bg-[#d4553a]" },
-  { key: "built", label: "Built", swatch: "bg-[#d9d4cc]" },
-  { key: "water", label: "Water", swatch: "bg-[#2f7ea8]" },
+  { key: "built", label: "Built", swatch: "bg-[#e23b3b]" },
+  { key: "water", label: "Water", swatch: "bg-[#2f7edb]" },
+];
+
+const MODEL: Array<{ key: keyof LandCoverPercentages; label: string; swatch: string }> = [
+  { key: "built", label: "Built", swatch: "bg-[#e23b3b]" },
+  { key: "trees", label: "Trees", swatch: "bg-[#1f8a4c]" },
+  { key: "grass", label: "Grass", swatch: "bg-[#7dcc6a]" },
+  { key: "shrub_and_scrub", label: "Shrub", swatch: "bg-[#8a9a4a]" },
+  { key: "crops", label: "Crops", swatch: "bg-[#e2c14a]" },
+  { key: "bare", label: "Bare", swatch: "bg-[#c4a574]" },
+  { key: "water", label: "Water", swatch: "bg-[#2f7edb]" },
+  { key: "flooded_vegetation", label: "Flooded", swatch: "bg-[#3d9a8a]" },
+  { key: "snow_and_ice", label: "Snow", swatch: "bg-[#d7e6f5]" },
 ];
 
 export default function CompareStage({ imagery }: { imagery: MLModelResponse }) {
@@ -43,6 +55,18 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
   const beforeMask = frameSrc(before, "mask");
   const afterMask = frameSrc(after, "mask");
   const single = frames.length < 2;
+  const measured = frames.some((item) => item.classified);
+  const palette = measured ? MODEL : LEGACY;
+  const suspect = new Set(
+    frames.flatMap((frame, frameIndex) => (qualityIssue(frames, frameIndex, palette) ? [frame.year] : [])),
+  );
+  const classes = palette.filter((item) => {
+    const earlier = Number(before.land_cover[item.key] ?? 0);
+    const later = Number(after.land_cover[item.key] ?? 0);
+    return earlier > 0.05 || later > 0.05;
+  });
+  const beforeShown = maskOn && beforeMask ? beforeMask : beforePhoto;
+  const afterShown = maskOn && afterMask ? afterMask : afterPhoto;
   const frame = usePictureFrame(afterPhoto || beforePhoto);
 
   return (
@@ -95,15 +119,15 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
             style={{ aspectRatio: frame.aspect }}
           >
             {single ? (
-              <FrameImage src={beforePhoto} mask={maskOn ? beforeMask : null} alt={`${before.year} satellite tile`} frame={frame} />
+              <FrameImage src={beforeShown} alt={`${before.year} satellite tile`} frame={frame} />
             ) : (
               <>
-                <FrameImage src={afterPhoto} mask={maskOn ? afterMask : null} alt={`${after.year} satellite tile`} frame={frame} />
+                <FrameImage src={afterShown} alt={`${after.year} satellite tile`} frame={frame} />
                 <div
                   className="absolute inset-0"
                   style={{ clipPath: `inset(0 ${100 - position}% 0 0)` }}
                 >
-                  <FrameImage src={beforePhoto} mask={maskOn ? beforeMask : null} alt={`${before.year} satellite tile`} frame={frame} />
+                  <FrameImage src={beforeShown} alt={`${before.year} satellite tile`} frame={frame} />
                 </div>
                 <div
                   className="pointer-events-none absolute inset-y-0 z-10 w-px bg-white"
@@ -151,6 +175,7 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
                   )}
                 >
                   {frame.year}
+                  {suspect.has(frame.year) ? " · image quality issue" : ""}
                 </button>
               );
             })}
@@ -177,30 +202,64 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
           <span>Land cover</span>
           <span>{after.year}</span>
         </div>
-        <Stack cover={before.land_cover} />
+        {suspect.has(before.year) || suspect.has(after.year) ? (
+          <p className="text-sm text-clay">
+            Image quality issue
+            {[before, after]
+              .filter((frame) => suspect.has(frame.year))
+              .map((frame) => ` for ${frame.year}`)
+              .join(",")}
+            . That year is not shown as a change.
+          </p>
+        ) : (
+          <>
+        <Stack cover={before.land_cover} classes={classes} />
         {!single && (
           <div className="mt-2">
-            <Stack cover={after.land_cover} />
+            <Stack cover={after.land_cover} classes={classes} />
           </div>
         )}
-        <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-ink/75 sm:grid-cols-5">
-          {CLASSES.map((item) => {
-            const change = after.land_cover[item.key] - before.land_cover[item.key];
+        <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-ink/75 sm:grid-cols-3">
+          {classes.map((item) => {
+            const current = Number(after.land_cover[item.key] ?? 0);
+            const change = current - Number(before.land_cover[item.key] ?? 0);
             return (
               <li key={item.key} className="flex items-center gap-1.5">
                 <span className={cx("h-2 w-2 rounded-full", item.swatch)} />
                 <span>{item.label}</span>
-                <span className={change < 0 ? "text-clay" : "text-foam"}>
-                  {change > 0 ? "+" : change < 0 ? "−" : ""}
-                  {Math.abs(change).toFixed(1)}
-                </span>
+                <span>{current.toFixed(1)}%</span>
+                {!single && (
+                  <span className={change < 0 ? "text-clay" : "text-foam"}>
+                    {change > 0 ? "+" : change < 0 ? "−" : ""}
+                    {Math.abs(change).toFixed(1)}
+                  </span>
+                )}
               </li>
             );
           })}
         </ul>
+          </>
+        )}
       </div>
     </section>
   );
+}
+
+function qualityIssue(
+  frames: MLModelResponse["frames"],
+  index: number,
+  palette: Array<{ key: keyof LandCoverPercentages }>,
+) {
+  const cover = frames[index]?.land_cover;
+  if (!cover) return false;
+  const top = Math.max(...palette.map((item) => Number(cover[item.key] ?? 0)));
+  if (top <= 90) return false;
+  return [frames[index - 1], frames[index + 1]].some((other) => {
+    if (!other) return false;
+    return palette.some(
+      (item) => Math.abs(Number(cover[item.key] ?? 0) - Number(other.land_cover[item.key] ?? 0)) >= 40,
+    );
+  });
 }
 
 function usePictureFrame(src: string | null) {
@@ -257,12 +316,10 @@ function contentFrame(img: HTMLImageElement) {
 
 function FrameImage({
   src,
-  mask,
   alt,
   frame,
 }: {
   src: string | null;
-  mask: string | null;
   alt: string;
   frame: { x: number; y: number; w: number; h: number };
 }) {
@@ -277,20 +334,25 @@ function FrameImage({
   return (
     <div className="absolute inset-0 overflow-hidden">
       <img src={src} alt={alt} style={style} />
-      {mask && <img src={mask} alt="" style={style} className="absolute left-0 top-0 opacity-70" />}
     </div>
   );
 }
 
-function Stack({ cover }: { cover: LandCoverPercentages }) {
+function Stack({
+  cover,
+  classes,
+}: {
+  cover: LandCoverPercentages;
+  classes: Array<{ key: keyof LandCoverPercentages; label: string; swatch: string }>;
+}) {
   return (
     <div className="flex h-3 overflow-hidden rounded-full bg-white/5">
-      {CLASSES.map((item) => (
+      {classes.map((item) => (
         <div
           key={item.key}
           className={item.swatch}
-          style={{ width: `${cover[item.key]}%` }}
-          title={`${item.label} ${cover[item.key]}%`}
+          style={{ width: `${Number(cover[item.key] ?? 0)}%` }}
+          title={`${item.label} ${Number(cover[item.key] ?? 0)}%`}
         />
       ))}
     </div>

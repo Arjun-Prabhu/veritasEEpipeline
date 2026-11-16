@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { interpretWithGemini } from "@/lib/gemini";
-import { localNarrative } from "@/lib/narrative";
 import type { MLModelResponse } from "@/services/mlModelService";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
@@ -23,7 +22,27 @@ export async function POST(request: Request) {
     console.error("Gemini interpretation failed", error);
   }
 
+  const first = imagery.frames[0];
+  const last = imagery.frames[imagery.frames.length - 1];
+  const built = (last.land_cover.built ?? 0) - (first.land_cover.built ?? 0);
+  const trees = (last.land_cover.trees ?? 0) - (first.land_cover.trees ?? 0);
+  const grass = (last.land_cover.grass ?? last.land_cover.green_space) - (first.land_cover.grass ?? first.land_cover.green_space);
+  const shift = first.classified
+    ? `${first.year} to ${last.year}: built land ${built >= 0 ? "rose" : "fell"} ${Math.abs(built).toFixed(1)} points, trees ${trees >= 0 ? "rose" : "fell"} ${Math.abs(trees).toFixed(1)} points, and grass ${grass >= 0 ? "rose" : "fell"} ${Math.abs(grass).toFixed(1)} points.`
+    : `${first.year} to ${last.year}: green space ${grass >= 0 ? "rose" : "fell"} ${Math.abs(grass).toFixed(1)} points and built land ${built >= 0 ? "rose" : "fell"} ${Math.abs(built).toFixed(1)} points.`;
+  const harmful = built > 0 && (trees < 0 || grass < 0);
   return NextResponse.json({
-    analysis: { ...localNarrative(prompt, imagery), source: "local" },
+    analysis: {
+      headline: "",
+      observed_changes: `${shift}\nAcross ${imagery.location}, that is the measured change from the first year to the last.`,
+      future_predictions: harmful
+        ? "If this pace holds, built land keeps taking space from vegetation. That is a bad direction for the environment."
+        : "If this pace holds, the current mix of land cover stays near where it is. That is not a clear harm.",
+      root_causes: harmful
+        ? `Ask ${imagery.location} to publish what it is doing to slow the loss of vegetation, and push for a public review of new built land.`
+        : "",
+      mitigation: [],
+      source: "local",
+    },
   });
 }

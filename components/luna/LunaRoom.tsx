@@ -121,13 +121,18 @@ export default function LunaRoom() {
         height={34}
         className={`pointer-events-none absolute z-10 left-5 top-24 ${busy ? "luna-roll" : "luna-bob"}`}
       />
-      <form onSubmit={send} className="prompt-gun mt-6 h-12">
-        <input
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask Luna"
-          className="absolute inset-[1.5px] z-[1] rounded-full border border-white/10 bg-[#05060f] px-4 text-[15px] text-white outline-none placeholder:text-white/40"
-        />
+      <form onSubmit={send} className="mt-6 flex gap-2">
+        <div className="prompt-gun h-12 min-w-0 flex-1">
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="Ask Luna"
+            className="absolute inset-[1.5px] z-[1] rounded-full bg-[#05060f] px-4 text-[15px] text-white outline-none placeholder:text-white/40"
+          />
+        </div>
+        <button type="submit" className="h-12 shrink-0 rounded-full bg-lime px-5 text-sm font-semibold text-[#071018]">
+          Ask
+        </button>
       </form>
     </div>
   );

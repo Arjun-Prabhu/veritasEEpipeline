@@ -7,6 +7,7 @@ import { startPageTransition } from "@/lib/transition";
 
 export default function LunaChat() {
   const [text, setText] = useState("");
+  const [asked, setAsked] = useState("");
   const [reply, setReply] = useState("");
   const [busy, setBusy] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
@@ -46,6 +47,8 @@ export default function LunaChat() {
     if (!prompt || busy) return;
     setDone(false);
     setBusy(true);
+    setAsked(prompt);
+    setText("");
     setReply("");
     const history = [...turns.current, { role: "user" as const, text: prompt }];
     turns.current = history;
@@ -84,6 +87,7 @@ export default function LunaChat() {
         Meet Luna
         <span ref={homeRef} className="inline-block h-[30px] w-[30px] shrink-0" />
       </p>
+      {asked && <p className="mt-3 text-sm text-white/55">{asked}</p>}
       <p className="mt-2 min-h-12 text-[15px] leading-relaxed text-white/80">
         {busy || reply ? reply : "Ask about satellites, land use, or how the earth is changing."}
         <span ref={caretRef} className={busy ? "inline-block h-[22px] w-[22px] align-[-6px]" : "inline-block h-0 w-0"} />
@@ -105,12 +109,19 @@ export default function LunaChat() {
           Learn more
         </Link>
       )}
-      <input
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        placeholder="Ask Luna"
-        className="mt-3 h-10 w-full rounded-full border border-white/20 bg-transparent px-3 text-[15px] text-white outline-none placeholder:text-white/40"
-      />
+      <div className="mt-3 flex gap-2">
+        <div className="prompt-gun h-10 min-w-0 flex-1">
+          <input
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            placeholder="Ask Luna"
+            className="absolute inset-[1.5px] z-[1] rounded-full bg-[#05060f] px-3 text-[15px] text-white outline-none placeholder:text-white/40"
+          />
+        </div>
+        <button type="submit" className="h-10 shrink-0 rounded-full bg-lime px-4 text-sm font-semibold text-[#071018]">
+          Ask
+        </button>
+      </div>
     </form>
   );
 }

@@ -1,19 +1,20 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import CompareStage from "@/components/analyze/CompareStage";
 import { caseById } from "@/lib/cases";
 import { cx } from "@/lib/format";
 import type { Analysis } from "@/lib/narrative";
 import type { ParsedQuery } from "@/lib/query";
 import { loadReports, saveReport } from "@/lib/storage";
+import { coverSummary } from "@/lib/cover";
 import type { MLModelResponse } from "@/services/mlModelService";
 
 type Phase = "idle" | "parsing" | "imaging" | "reading" | "ready" | "error";
 
 const STEPS = [
   { id: "parsing", label: "Reading the question" },
-  { id: "imaging", label: "Pulling the years" },
+  { id: "imaging", label: "Pulling and classifying the years" },
   { id: "reading", label: "Writing the briefing" },
 ] as const;
 
@@ -123,9 +124,24 @@ export default function Analyzer() {
       );
       setImagery(imageryBody.imagery);
       setPhase("reading");
+      const slim = imageryBody.imagery;
       const analysisBody = await postJson<{ analysis: Analysis }>(
         "/api/interpret",
-        { prompt: text, imagery: imageryBody.imagery },
+        {
+          prompt: text,
+          imagery: {
+            location: slim.location,
+            latitude: slim.latitude,
+            longitude: slim.longitude,
+            start_year: slim.start_year,
+            end_year: slim.end_year,
+            focus_area: slim.focus_area,
+            region: slim.region,
+            country: slim.country,
+            provider: slim.provider,
+            frames: slim.frames.map((frame) => ({ year: frame.year, land_cover: frame.land_cover })),
+          },
+        },
         controller.signal,
       );
       setAnalysis(analysisBody.analysis);
@@ -166,7 +182,7 @@ export default function Analyzer() {
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder={prompt ? "" : hint}
-              className="absolute inset-[1.5px] z-[1] rounded-full border border-white/10 bg-[#05060f] px-5 text-sm text-ink outline-none placeholder:text-ink/35"
+              className="absolute inset-[1.5px] z-[1] rounded-full bg-[#05060f] px-5 text-sm text-ink outline-none placeholder:text-ink/35"
             />
           </div>
           <button
@@ -189,7 +205,21 @@ export default function Analyzer() {
         </div>
         <aside className="min-h-0 overflow-auto rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
           {busy && <Stepper phase={phase} />}
-          {analysis && <TypedBriefing analysis={analysis} saved={saved} onSave={onSave} />}
+          {analysis && (
+            <TypedBriefing
+              analysis={analysis}
+              location={imagery?.location || parsed?.location || ""}
+              years={imagery ? `${imagery.start_year}–${imagery.end_year}` : ""}
+              focus={imagery?.focus_area || parsed?.focus_area || ""}
+              covers={
+                imagery?.frames
+                  .map((frame) => coverSummary(frame.year, frame.land_cover, Boolean(frame.classified)))
+                  .join("\n") || ""
+              }
+              saved={saved}
+              onSave={onSave}
+            />
+          )}
           {!analysis && !busy && phase !== "error" && (
             <div className="flex h-full flex-col justify-center">
               <p className="text-[11px] uppercase tracking-[0.22em] text-ink/40">What comes back</p>
@@ -212,30 +242,40 @@ export default function Analyzer() {
 
 function TypedBriefing({
   analysis,
+  location,
+  years,
+  focus,
+  covers,
   saved,
   onSave,
 }: {
   analysis: Analysis;
+  location: string;
+  years: string;
+  focus: string;
+  covers: string;
   saved: boolean;
   onSave: () => void;
 }) {
-  const script = [
-    analysis.headline,
-    analysis.observed_changes,
-    analysis.root_causes,
-    analysis.future_predictions,
-    ...analysis.mitigation,
-  ].join("\n");
+  const sections = [
+    { title: "Changes", text: analysis.observed_changes },
+    { title: "Prediction", text: analysis.future_predictions },
+    { title: "Solution", text: analysis.root_causes },
+  ].filter((section) => section.text.trim());
+  const script = sections.map((section) => section.text).join("\n");
   const [count, setCount] = useState(0);
+  const [question, setQuestion] = useState("");
+  const [turns, setTurns] = useState<Array<{ role: "user" | "luna"; text: string }>>([]);
+  const [asking, setAsking] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
-  const homeRef = useRef<HTMLSpanElement>(null);
   const caretRef = useRef<HTMLSpanElement>(null);
+  const followRef = useRef<HTMLSpanElement>(null);
   const iconRef = useRef<HTMLImageElement>(null);
   const arrived = useRef(false);
-  const typing = count < script.length;
 
   useEffect(() => {
     setCount(0);
+    arrived.current = false;
     let shown = 0;
     const timer = window.setInterval(() => {
       shown += 1;
@@ -245,99 +285,140 @@ function TypedBriefing({
     return () => window.clearInterval(timer);
   }, [script]);
 
+  const shown = script.slice(0, count);
+  const done = count >= script.length;
+  const following = turns.some((turn) => turn.role === "luna");
+
   useLayoutEffect(() => {
     const box = boxRef.current;
     const icon = iconRef.current;
-    const target = typing ? caretRef.current : homeRef.current;
-    if (!box || !icon || !target) return;
-    const place = () => {
-      const bounds = box.getBoundingClientRect();
-      const spot = target.getBoundingClientRect();
-      icon.style.left = `${spot.left - bounds.left}px`;
-      icon.style.top = `${spot.top - bounds.top}px`;
-      icon.style.width = typing ? "22px" : "30px";
-      icon.style.height = typing ? "22px" : "30px";
-    };
-    icon.style.transition = typing && arrived.current
+    const caret = (following ? followRef.current : caretRef.current);
+    if (!box || !icon || !caret) return;
+    const bounds = box.getBoundingClientRect();
+    const spot = caret.getBoundingClientRect();
+    icon.style.transition = (asking || (!done && !following)) && arrived.current
       ? "none"
       : "left 0.55s cubic-bezier(.2,.8,.2,1), top 0.55s cubic-bezier(.15,1.4,.3,1), width 0.55s ease, height 0.55s ease";
-    arrived.current = typing;
-    place();
-  }, [typing, count]);
+    arrived.current = asking || (!done && !following);
+    icon.style.left = `${spot.left - bounds.left}px`;
+    icon.style.top = `${spot.top - bounds.top}px`;
+    icon.style.width = "22px";
+    icon.style.height = "22px";
+  }, [shown, done, following, asking, turns]);
 
-  let cursor = count;
-  const take = (text: string) => {
-    const slice = text.slice(0, cursor);
-    cursor = Math.max(0, cursor - text.length - 1);
-    return slice;
-  };
-  const headline = take(analysis.headline);
-  const observed = take(analysis.observed_changes);
-  const causes = take(analysis.root_causes);
-  const future = take(analysis.future_predictions);
-  const steps = analysis.mitigation.map((step) => take(step));
-  const done = count >= script.length;
-  const caret = <span ref={caretRef} className="inline-block h-[22px] w-[22px] align-[-4px]" />;
-  const onHeadline = !done && headline.length < analysis.headline.length;
-  const onObserved = !done && !onHeadline && observed.length < analysis.observed_changes.length;
-  const onCauses = !done && !onHeadline && !onObserved && causes.length < analysis.root_causes.length;
-  const onFuture = !done && !onHeadline && !onObserved && !onCauses && future.length < analysis.future_predictions.length;
-  const stepIndex = steps.findIndex((item, itemIndex) => item.length < analysis.mitigation[itemIndex].length);
+  async function askFollowup(event: FormEvent) {
+    event.preventDefault();
+    const text = question.trim();
+    if (!text || asking) return;
+    setQuestion("");
+    setAsking(true);
+    setTurns((current) => [...current, { role: "user", text }, { role: "luna", text: "" }]);
+    try {
+      const response = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: text,
+          luna: true,
+          context: { location, briefing: script, years, focus, covers },
+        }),
+      });
+      const data = (await response.json()) as { reply?: string; error?: string };
+      const message = data.reply || data.error || "Luna could not answer that.";
+      let index = 0;
+      await new Promise<void>((resolve) => {
+        const timer = window.setInterval(() => {
+          index = Math.min(message.length, index + 1);
+          const typed = message.slice(0, index);
+          setTurns((current) => {
+            const next = [...current];
+            next[next.length - 1] = { role: "luna", text: typed };
+            return next;
+          });
+          if (index >= message.length) {
+            window.clearInterval(timer);
+            resolve();
+          }
+        }, 42);
+      });
+    } catch {
+      setTurns((current) => {
+        const next = [...current];
+        next[next.length - 1] = { role: "luna", text: "Luna could not reach the model." };
+        return next;
+      });
+    } finally {
+      setAsking(false);
+    }
+  }
 
   return (
-    <div ref={boxRef} className="relative flex flex-col gap-4">
-      <p className="flex items-center gap-2 text-sm text-white">
-        Luna
-        <span ref={homeRef} className="inline-block h-[30px] w-[30px] shrink-0" />
-      </p>
+    <div ref={boxRef} className="relative">
       <img
         ref={iconRef}
         src="/luna.png"
         alt=""
-        width={30}
-        height={30}
-        className={`pointer-events-none absolute left-0 top-0 ${typing ? "luna-roll" : "luna-bob"}`}
+        width={22}
+        height={22}
+        className={`pointer-events-none absolute left-0 top-0 ${asking || !done ? "luna-roll" : "luna-bob"}`}
       />
-      <div>
-        <p className="text-[11px] uppercase tracking-[0.22em] text-foam">Briefing</p>
-        <h2 className="mt-2 font-serif text-3xl leading-tight text-ink">
-          {headline}
-          {onHeadline && caret}
-        </h2>
-      </div>
-      {observed && <Insight index="01" title="Observed changes" body={observed} caret={onObserved ? caret : null} />}
-      {causes && <Insight index="02" title="Root causes" body={causes} caret={onCauses ? caret : null} />}
-      {future && <Insight index="03" title="Future predictions" body={future} caret={onFuture ? caret : null} />}
-      {steps.some(Boolean) && (
-        <div className="rounded-2xl border border-white/10 p-4">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-ink/45">04 · Actionable mitigation</p>
-          <ol className="mt-3 list-decimal space-y-2 pl-4 text-sm leading-relaxed text-ink/85">
-            {steps.map((step, index) =>
-              step ? (
-                <li key={analysis.mitigation[index]}>
-                  {step}
-                  {!done && index === stepIndex && caret}
-                </li>
-              ) : null,
+      {sections.map((section, index) => {
+        const start = sections.slice(0, index).reduce((total, item) => total + item.text.length + 1, 0);
+        if (count < start) return null;
+        const visible = shown.slice(start, start + section.text.length);
+        const typingHere = !following && count < start + section.text.length;
+        return (
+          <div key={section.title} className={index === 0 ? "" : "mt-6"}>
+            <h3 className="text-base font-semibold text-white">{section.title}</h3>
+            {visible.split("\n").map((paragraph, paragraphIndex, all) => (
+              <p key={`${section.title}-${paragraphIndex}`} className="mt-2 text-sm leading-7 text-white">
+                {paragraph}
+                {typingHere && paragraphIndex === all.length - 1 && (
+                  <span ref={caretRef} className="inline-block h-[22px] w-[22px] align-[-6px]" />
+                )}
+              </p>
+            ))}
+          </div>
+        );
+      })}
+      {done && !following && <span ref={caretRef} className="inline-block h-0 w-0" />}
+      {turns.map((turn, index) => {
+        const last = index === turns.length - 1;
+        return (
+          <p
+            key={`${turn.role}-${index}`}
+            className={turn.role === "user" ? "mt-3 text-sm text-white/55" : "mt-3 text-sm leading-7 text-white"}
+          >
+            {turn.text}
+            {last && turn.role === "luna" && (
+              <span ref={followRef} className="inline-block h-[22px] w-[22px] align-[-6px]" />
             )}
-          </ol>
-        </div>
+          </p>
+        );
+      })}
+      {done && (
+        <form onSubmit={askFollowup} className="mt-4 flex gap-2">
+          <div className="prompt-gun h-10 min-w-0 flex-1">
+            <input
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+              placeholder="Ask Luna"
+              className="absolute inset-[1.5px] z-[1] rounded-full bg-[#05060f] px-3 text-[15px] text-white outline-none placeholder:text-white/40"
+            />
+          </div>
+          <button type="submit" className="h-10 shrink-0 rounded-full bg-lime px-4 text-sm font-semibold text-[#071018]">
+            Ask
+          </button>
+        </form>
       )}
       {done && (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={onSave}
-            className="rounded-full border border-white/15 px-4 py-2 text-sm hover:bg-white/5"
-          >
-            {saved ? "Saved on this device" : "Save this reading"}
-          </button>
-          {analysis.source === "local" && (
-            <p className="max-w-xs text-xs leading-relaxed text-ink/45">
-              Drafted from the land-cover numbers on this machine. Add GEMINI_API_KEY for a model-written reading.
-            </p>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={onSave}
+          className="mt-4 rounded-full border border-white/15 px-4 py-2 text-sm hover:bg-white/5"
+        >
+          {saved ? "Saved on this device" : "Save this reading"}
+        </button>
       )}
     </div>
   );
@@ -346,7 +427,7 @@ function TypedBriefing({
 function IdleStage({ phase, error }: { phase: Phase; error: string }) {
   return (
     <section className="flex h-full min-h-[420px] flex-col justify-end rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_30%_20%,rgba(125,204,255,0.16),transparent_34%),linear-gradient(160deg,#10182c,#05060f_58%)] p-6 md:p-10">
-      <p className="text-[11px] uppercase tracking-[0.28em] text-white">
+      <p className="text-[11px] tracking-[0.28em] text-white">
         g<span className="italic text-[#3e8ec4]">AI</span>a
       </p>
       <h2 className="mt-4 max-w-xl font-serif text-5xl leading-[0.95] text-ink md:text-6xl">
@@ -383,30 +464,6 @@ function Stepper({ phase }: { phase: Phase }) {
         </li>
       ))}
     </ol>
-  );
-}
-
-function Insight({
-  index,
-  title,
-  body,
-  caret,
-}: {
-  index: string;
-  title: string;
-  body: string;
-  caret?: ReactNode;
-}) {
-  return (
-    <article className="rounded-2xl border border-white/10 p-4">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-ink/45">
-        {index} · {title}
-      </p>
-      <p className="mt-2 text-sm leading-relaxed text-ink/85">
-        {body}
-        {caret}
-      </p>
-    </article>
   );
 }
 

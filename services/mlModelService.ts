@@ -32,6 +32,12 @@ export interface LandCoverPercentages {
   water: number;
   crops: number;
   built: number;
+  trees?: number;
+  grass?: number;
+  flooded_vegetation?: number;
+  shrub_and_scrub?: number;
+  bare?: number;
+  snow_and_ice?: number;
 }
 
 export interface YearImagery {
@@ -46,6 +52,8 @@ export interface YearImagery {
   mask_base64?: string;
   mask_mime?: string;
   land_cover: LandCoverPercentages;
+  /** True when this frame was measured by the land model. */
+  classified?: boolean;
 }
 
 export interface MLModelResponse {
