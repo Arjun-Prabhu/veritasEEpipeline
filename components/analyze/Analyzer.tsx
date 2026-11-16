@@ -210,7 +210,7 @@ export default function Analyzer() {
         <aside className="flex min-h-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
           {busy && <Stepper phase={phase} />}
           {analysis && (
-            <div className="briefing-scroll min-h-0 max-h-[min(70vh,640px)] flex-1 pr-3">
+            <div className="briefing-scroll h-[min(82vh,820px)] pr-3">
             <TypedBriefing
               analysis={analysis}
               location={imagery?.location || parsed?.location || ""}
