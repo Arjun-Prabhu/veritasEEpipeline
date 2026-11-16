@@ -82,11 +82,14 @@ export default function CompareStage({ imagery }: { imagery: MLModelResponse }) 
                 aria-pressed={maskOn}
                 onClick={() => setMaskOn((value) => !value)}
                 className={cx(
-                  "relative z-[1] m-[1.5px] rounded-full px-6 py-3 text-base",
+                  "class-toggle relative z-[1] m-[1.5px] rounded-full px-6 py-3 text-base",
                   maskOn ? "bg-lime text-[#071018]" : "bg-[#05060f] text-ink",
                 )}
               >
-                Classification
+                <span className="class-toggle-label">
+                  Classification
+                  <span className="class-toggle-extra">{maskOn ? " on" : " view"}</span>
+                </span>
               </button>
             </span>
           </div>

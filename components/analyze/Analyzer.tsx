@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import CompareStage from "@/components/analyze/CompareStage";
 import { caseById } from "@/lib/cases";
@@ -8,10 +7,9 @@ import { cx } from "@/lib/format";
 import type { Analysis } from "@/lib/narrative";
 import type { ParsedQuery } from "@/lib/query";
 import { loadReports, saveReport } from "@/lib/storage";
-import { coverSummary } from "@/lib/cover";
+import { coverSummary, pointChangeLines } from "@/lib/cover";
+import EarthSpinner from "@/components/EarthSpinner";
 import type { MLModelResponse } from "@/services/mlModelService";
-
-const MiniGlobe = dynamic(() => import("./MiniGlobe"), { ssr: false });
 
 type Phase = "idle" | "parsing" | "imaging" | "reading" | "ready" | "error";
 
@@ -209,15 +207,16 @@ export default function Analyzer() {
             <IdleStage phase={phase} error={error} />
           )}
         </div>
-        <aside className="min-h-0 overflow-auto rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
+        <aside className="flex min-h-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-4 md:p-5">
           {busy && <Stepper phase={phase} />}
           {analysis && (
-            <div className="max-h-[min(70vh,640px)] overflow-y-auto pr-1">
+            <div className="briefing-scroll min-h-0 max-h-[min(70vh,640px)] flex-1 pr-3">
             <TypedBriefing
               analysis={analysis}
               location={imagery?.location || parsed?.location || ""}
               years={imagery ? `${imagery.start_year}–${imagery.end_year}` : ""}
               focus={imagery?.focus_area || parsed?.focus_area || ""}
+              changes={imagery ? pointChangeLines(imagery.frames) : ""}
               covers={
                 imagery?.frames
                   .map((frame) => coverSummary(frame.year, frame.land_cover, Boolean(frame.classified)))
@@ -253,6 +252,7 @@ function TypedBriefing({
   location,
   years,
   focus,
+  changes,
   covers,
   saved,
   onSave,
@@ -261,12 +261,17 @@ function TypedBriefing({
   location: string;
   years: string;
   focus: string;
+  changes: string;
   covers: string;
   saved: boolean;
   onSave: () => void;
 }) {
+  const measured = changes.trim();
+  const observed = measured && !analysis.observed_changes.includes(measured.split("\n")[0] ?? "\u0000")
+    ? `${measured}\n${analysis.observed_changes}`
+    : analysis.observed_changes;
   const sections = [
-    { title: "Changes", text: analysis.observed_changes },
+    { title: "Changes", text: observed },
     { title: "Prediction", text: analysis.future_predictions },
     { title: "Solution", text: analysis.root_causes },
   ].filter((section) => section.text.trim());
@@ -445,9 +450,7 @@ function RetrieveStage({ place }: { place: ParsedQuery }) {
   return (
     <section className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-3xl border border-white/10 bg-[#05060f] px-6 py-10 text-center">
       <h2 className="font-serif text-4xl text-ink md:text-5xl">{place.location}</h2>
-      <div className="mt-6 h-56 w-56">
-        <MiniGlobe lat={place.latitude} lon={place.longitude} spin />
-      </div>
+      <EarthSpinner className="mt-8 h-28 w-28" />
       <div className="mt-6 space-y-1 text-sm text-white/80">
         {RETRIEVE_LINES.slice(0, shown).map((line, index) => (
           <p key={`${line}-${index}`}>{line}</p>

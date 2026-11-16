@@ -22,6 +22,28 @@ body {
   min-height: 100%;
 }
 
+.briefing-scroll {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #7dccff rgba(255, 255, 255, 0.12);
+}
+
+.briefing-scroll::-webkit-scrollbar {
+  width: 12px;
+  display: block;
+}
+
+.briefing-scroll::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.briefing-scroll::-webkit-scrollbar-thumb {
+  background: #7dccff;
+  border-radius: 999px;
+}
+
 ::selection {
   background: #7dccff;
   color: #071018;
@@ -43,6 +65,22 @@ html.lenis body {
 
 input[type="range"] {
   accent-color: #7dccff;
+}
+
+.class-toggle-extra {
+  display: inline-block;
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  vertical-align: bottom;
+  white-space: nowrap;
+  transition: max-width 0.35s ease, opacity 0.25s ease;
+}
+
+.class-toggle:hover .class-toggle-extra,
+.class-toggle:focus-visible .class-toggle-extra {
+  max-width: 5rem;
+  opacity: 1;
 }
 
 .prompt-gun {

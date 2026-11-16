@@ -779,6 +779,11 @@ export default function EarthCanvas({
         <aside
           className="pointer-events-auto absolute right-[6%] top-[18%] z-20 w-[min(260px,30vw)] border border-white/20 bg-[#05060f]/85 p-4 text-white transition-opacity duration-300"
           style={{ opacity: cardOpacity }}
+          onMouseEnter={() => {
+            window.clearTimeout(hideTimer.current);
+            if (continent) shown.current = continent.id;
+          }}
+          onMouseLeave={() => selectContinent(null)}
         >
           <p className="text-[11px] uppercase tracking-[0.18em] text-[#7dccff]">{continent.name}</p>
           <p className="mt-2 text-sm leading-relaxed text-white/85">{continent.blurb}</p>
