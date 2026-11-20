@@ -51,13 +51,15 @@ export async function classifySatelliteFrames<T extends { year: number; image_ur
 ): Promise<Array<Classified<T>>> {
   const classified: Array<Classified<T>> = [];
   let last: Error | null = null;
-  for (const frame of frames) {
-    try {
-      classified.push(await classifySatelliteFrame(frame));
-    } catch (error) {
-      last = error instanceof Error ? error : new Error(`The land model failed for ${frame.year}.`);
-      console.error(last.message);
+  const results = await Promise.allSettled(frames.map((frame) => classifySatelliteFrame(frame)));
+  for (const [index, result] of results.entries()) {
+    if (result.status === "fulfilled") {
+      classified.push(result.value);
+      continue;
     }
+    const error = result.reason;
+    last = error instanceof Error ? error : new Error(`The land model failed for ${frames[index].year}.`);
+    console.error(last.message);
   }
   if (!classified.length) {
     throw last ?? new Error("The land model could not read those years.");

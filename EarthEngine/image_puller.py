@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
@@ -50,25 +51,39 @@ def _download(image, region, out_path):
     img.save(out_path)
 
 
+def _pull_year(point, region, year, output_dir):
+    start = f"{year}-01-01"
+    end = f"{int(year) + 1}-01-01"
+    if year >= datetime.now(timezone.utc).year:
+        end = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+    image, count = _best_scene(point, start, end)
+    print(f"year {year} candidates {count}", file=sys.stderr)
+    if image is None:
+        return None
+    path = output_dir / f"satellite_{year}.png"
+    _download(image, region, path)
+    return str(path)
+
+
 def get_satellite_images(lat, lon, years, output_dir):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     point = ee.Geometry.Point([lon, lat])
     region = point.buffer(BOX_METERS).bounds()
     results = {}
-    for year in years:
-        start = f"{year}-01-01"
-        end = f"{int(year) + 1}-01-01"
-        if year >= datetime.now(timezone.utc).year:
-            end = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
-        image, count = _best_scene(point, start, end)
-        print(f"year {year} candidates {count}", file=sys.stderr)
-        if image is None:
-            continue
-        path = output_dir / f"satellite_{year}.png"
-        _download(image, region, path)
-        results[int(year)] = str(path)
-    return results
+    # Each year is an independent Earth Engine round trip, so pull them together.
+    with ThreadPoolExecutor(max_workers=max(1, min(8, len(years)))) as pool:
+        futures = {pool.submit(_pull_year, point, region, year, output_dir): year for year in years}
+        for future in as_completed(futures):
+            year = futures[future]
+            try:
+                path = future.result()
+            except Exception as error:  # one bad year should not sink the rest
+                print(f"year {year} failed: {error}", file=sys.stderr)
+                continue
+            if path:
+                results[int(year)] = path
+    return dict(sorted(results.items()))
 
 
 def main():

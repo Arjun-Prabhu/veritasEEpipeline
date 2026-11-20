@@ -29,22 +29,45 @@ export async function POST(request: Request) {
       return [asPulled(frame, imageUrl)];
     });
     let frames = await classifySatelliteFrames(pulled);
-    const have = () => new Set(frames.map((frame) => frame.year));
-    for (const year of wanted) {
-      if (have().has(year)) continue;
-      if ([...have()].some((found) => Math.abs(found - year) <= 1)) continue;
-      const base = imagery.frames.find((frame) => frame.year === year) ?? imagery.frames[0];
-      for (const alt of [year - 1, year + 1, year - 2, year + 2]) {
-        if (have().has(alt) || alt < 2016 || alt > 2026) continue;
-        const extra = await pullSatelliteImages(imagery.latitude, imagery.longitude, [alt]);
-        const imageUrl = extra?.[alt];
-        if (!imageUrl) continue;
-        try {
-          frames.push(await classifySatelliteFrame(asPulled({ ...base, year: alt }, imageUrl)));
-          break;
-        } catch (error) {
-          console.error(error instanceof Error ? error.message : `The land model failed for ${alt}.`);
-        }
+    const have = new Set(frames.map((frame) => frame.year));
+    // Years with no usable scene try nearby years instead. Every candidate is
+    // pulled in one Earth Engine call and classified in parallel, rather than
+    // one process and one model call at a time.
+    const missing = wanted.filter(
+      (year) => !have.has(year) && ![...have].some((found) => Math.abs(found - year) <= 1),
+    );
+    const candidates = new Map<number, number[]>();
+    for (const year of missing) {
+      candidates.set(
+        year,
+        [year - 1, year + 1, year - 2, year + 2].filter((alt) => !have.has(alt) && alt >= 2016 && alt <= 2026),
+      );
+    }
+    const altYears = [...new Set([...candidates.values()].flat())];
+    if (altYears.length) {
+      const extra = await pullSatelliteImages(imagery.latitude, imagery.longitude, altYears).catch((error) => {
+        console.error(error instanceof Error ? error.message : "Nearby-year pull failed.");
+        return null;
+      });
+      const classifiedAlt = new Map<number, Awaited<ReturnType<typeof classifySatelliteFrame>>>();
+      await Promise.all(
+        altYears.map(async (alt) => {
+          const imageUrl = extra?.[alt];
+          if (!imageUrl) return;
+          const base = imagery.frames.find((frame) => frame.year === alt) ?? imagery.frames[0];
+          try {
+            classifiedAlt.set(alt, await classifySatelliteFrame(asPulled({ ...base, year: alt }, imageUrl)));
+          } catch (error) {
+            console.error(error instanceof Error ? error.message : `The land model failed for ${alt}.`);
+          }
+        }),
+      );
+      for (const year of missing) {
+        if ([...have].some((found) => Math.abs(found - year) <= 1)) continue;
+        const pick = candidates.get(year)?.find((alt) => !have.has(alt) && classifiedAlt.has(alt));
+        if (pick === undefined) continue;
+        frames.push(classifiedAlt.get(pick)!);
+        have.add(pick);
       }
     }
     frames = frames.sort((a, b) => a.year - b.year);

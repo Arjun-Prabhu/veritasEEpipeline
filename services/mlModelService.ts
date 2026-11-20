@@ -112,7 +112,6 @@ export function modelMode(): "mock" | "live" {
 
 export async function fetchLandImagery(params: MLModelRequest): Promise<MLModelResponse> {
   if (modelMode() === "live") return fetchRemoteModel(params);
-  await delay(2000);
   return buildMock(params);
 }
 
@@ -314,6 +313,3 @@ function numberOr(value: unknown, fallback: number) {
   return typeof value === "number" && !Number.isNaN(value) ? value : fallback;
 }
 
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}

@@ -143,9 +143,18 @@ async function scene(ee: EarthEngine, lat: number, lon: number, year: number) {
 export async function pullSatelliteImagesInNode(lat: number, lon: number, years: number[]) {
   const ee = await client();
   const photos: Record<number, string> = {};
-  for (const year of years) {
-    console.log("Earth Engine year", year);
-    const image = await scene(ee, lat, lon, year);
+  const results = await Promise.allSettled(
+    years.map(async (year) => {
+      console.log("Earth Engine year", year);
+      return [year, await scene(ee, lat, lon, year)] as const;
+    }),
+  );
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error(result.reason instanceof Error ? result.reason.message : result.reason);
+      continue;
+    }
+    const [year, image] = result.value;
     if (image) photos[year] = image;
   }
   if (!Object.keys(photos).length) {
