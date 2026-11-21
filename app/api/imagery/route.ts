@@ -49,7 +49,7 @@ export async function POST(request: Request) {
         console.error(error instanceof Error ? error.message : "Nearby-year pull failed.");
         return null;
       });
-      const classifiedAlt = new Map<number, Awaited<ReturnType<typeof classifySatelliteFrame>>>();
+      const classifiedAlt = new Map<number, (typeof frames)[number]>();
       await Promise.all(
         altYears.map(async (alt) => {
           const imageUrl = extra?.[alt];
